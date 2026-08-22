@@ -1,0 +1,13 @@
+{
+  // Project markdownlint config for zcordis.
+  // Relaxes rules that conflict with intentional README/docs content.
+  "default": true,
+  "MD013": false, // long lines inside code fences and table cells are intentional
+  "MD033": false, // inline HTML (e.g. <https://...>) is allowed where useful
+  "MD041": false, // first line need not be an H1 for docs included as sections
+  "MD060": false, // allow both padded and compact table pipe styles
+  "MD024": false, // duplicate headings allowed across separate doc sections
+  "MD001": false, // dev.md uses # section + ### subsection intentionally
+  "MD036": false, // dev.md uses bold callouts as emphasis, not headings
+  "MD028": false  // dev.md blockquotes use blank ">" lines for visual separation
+}

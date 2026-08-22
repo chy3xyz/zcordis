@@ -1,0 +1,21 @@
+.{
+    .name = .zcordis,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.17.0",
+    .fingerprint = 0xb3ad36f0599cbb91,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "LICENSE",
+        "README.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "dev.md",
+        "docs",
+        "src",
+        "examples",
+        "tests",
+    },
+}

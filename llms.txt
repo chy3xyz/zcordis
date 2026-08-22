@@ -1,0 +1,43 @@
+# zcordis — LLM context index
+
+zcordis (Cordis Native) is a Zig 0.17 reimplementation of the Cordis plugin
+meta-framework, with a self-written WASM MVP interpreter. This file indexes the
+documentation for AI agents and LLM-based tooling.
+
+## Project overview
+
+- README.md — what/why/status, build/test/fuzz commands, docs index, sandbox invariants
+- dev.md — full design rationale (Chinese); architecture, scopes, events, effects, plugins
+- AGENTS.md — operational cheat-sheet for coding agents (commands, sandbox rules, conventions)
+
+## Developer documentation (English)
+
+- docs/getting-started.md — Context, Scope, services, typed + dynamic events, scope tree
+- docs/plugins.md — native manifest plugins, C-ABI plugins, WASM plugins, loader teardown
+- docs/effects.md — Effect / Scheduler / Task, scope-bound cancellation, I/O context
+- docs/harness-example.md — worked DeepSeek-Harness-style agent-runtime example
+- docs/wasm-interpreter.md — authoritative WASM interpreter reference (opcodes, f64, bulk-memory, Builder API)
+
+## Source map (for grounding code questions)
+
+- src/cordis.zig — public re-exports
+- src/core/ — context.zig, scope.zig, error.zig
+- src/service/ — service.zig, registry.zig
+- src/event/ — event.zig, bus.zig, dispatcher.zig, listener.zig
+- src/effect/ — effect.zig, scheduler.zig, task.zig, cancellation.zig
+- src/loader/ — loader.zig, manifest.zig, module.zig, wasm_demo.zig
+- src/abi/ — c.zig (C ABI + generated header), wasm.zig (interpreter)
+- src/io/ — io.zig
+
+## Examples
+
+- examples/basic.zig — minimal composition
+- examples/loader.zig + examples/plugins/greet_plugin.zig — C-ABI dynamic plugin
+- examples/wasm_loader.zig — WASM plugin in the interpreter
+
+## Guidelines
+
+- Sandbox invariant: malformed input must return `error`, never crash the host.
+- Use `Builder` (src/abi/wasm.zig) for WASM test binaries; never hand-roll bytecode.
+- Loader teardown order: `defer loader.deinit(); defer ctx.deinit();` (loader after ctx).
+- Run `zig fmt` on touched files; keep `zig build test` and (for interpreter work) `zig build fuzz-wasm -- 100000` green.
