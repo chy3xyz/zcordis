@@ -1,6 +1,6 @@
 //! Cordis Native — I/O runtime wrapper.
 //!
-//! Per `dev.md` (sections XII–XIII), Cordis Native is built *around*
+//! Per the design notes (sections XII–XIII), Cordis Native is built *around*
 //! `std.Io` rather than inventing its own async runtime. This module owns a
 //! `std.Io.Threaded` instance for the whole Cordis process and exposes it to
 //! plugins/services via `Context.io`.

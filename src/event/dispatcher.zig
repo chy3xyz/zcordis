@@ -38,7 +38,7 @@ pub fn collect(
         if (l.event_hash != key) continue;
         if (!l.scope.isAlive()) continue;
         // Scope-aware filtering: a non-global listener only fires for emits at
-        // or below the scope that subscribed (see dev.md §X).
+        // or below the scope that subscribed (scope-aware event system).
         if (!l.global and !emit_scope.isWithin(l.scope)) continue;
         try list.append(self.alloc, l);
     }

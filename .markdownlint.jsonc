@@ -7,7 +7,7 @@
   "MD041": false, // first line need not be an H1 for docs included as sections
   "MD060": false, // allow both padded and compact table pipe styles
   "MD024": false, // duplicate headings allowed across separate doc sections
-  "MD001": false, // dev.md uses # section + ### subsection intentionally
-  "MD036": false, // dev.md uses bold callouts as emphasis, not headings
-  "MD028": false  // dev.md blockquotes use blank ">" lines for visual separation
+  "MD001": false, // allow skipping heading levels (e.g. # section + ### subsection)
+  "MD036": false, // allow bold text used as emphasis rather than as a heading
+  "MD028": false  // allow blank ">" lines inside blockquotes for visual separation
 }

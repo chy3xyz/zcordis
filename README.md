@@ -41,7 +41,8 @@ design doc are implemented and verified:
 | 2 | C ABI plugins (`std.DynLib` + generated C header) | ✅ |
 | 3 | WASM plugins (minimal MVP interpreter) | ✅ (i32/i64/f32/f64, bulk-memory, tables, globals) |
 
-See [`dev.md`](dev.md) for the full design rationale and the suggested rewrite route.
+See [`docs/getting-started.md`](docs/getting-started.md) for the quickstart and
+[`docs/wasm-interpreter.md`](docs/wasm-interpreter.md) for the interpreter reference.
 
 ## Requirements
 
@@ -101,7 +102,6 @@ The WASM plugin ABI header for C/C++/Rust authors is emitted to
 | [`docs/effects.md`](docs/effects.md) | Effect / Scheduler / Task, scope-bound cancellation, I/O. |
 | [`docs/harness-example.md`](docs/harness-example.md) | DeepSeek-Harness-style agent runtime — usage guide: add tools, swap the model adapter, add listeners/plugins, stop conditions. |
 | [`docs/wasm-interpreter.md`](docs/wasm-interpreter.md) | WASM MVP opcode support, f64 + bulk-memory, sandbox invariants, Builder/test recipes. |
-| [`dev.md`](dev.md) | Design doc — core abstractions, architecture, and rewrite route. |
 | [`AGENTS.md`](AGENTS.md) | Operational cheat-sheet for AI coding agents. |
 | [`llms.txt`](llms.txt) | LLM context index pointing at all the docs above. |
 

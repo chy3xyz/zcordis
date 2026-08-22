@@ -30,4 +30,4 @@ jobs:
       - name: Install markdownlint-cli
         run: npm install -g markdownlint-cli
       - name: Lint docs
-        run: markdownlint README.md docs/*.md AGENTS.md llms.txt dev.md
+        run: markdownlint README.md docs/*.md AGENTS.md llms.txt

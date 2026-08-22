@@ -1,4 +1,4 @@
-//! Cordis Native — plugin manifest (dev.md §18, phase 2).
+//! Cordis Native — plugin manifest (phase 2).
 //!
 //! A plugin package describes itself in a small line-based manifest. The
 //! loader uses it to register the plugin without compile-time wiring, keeping

@@ -17,7 +17,7 @@ using the repo's `.markdownlint.jsonc` config. Run it locally with:
 
 ```sh
 npm install -g markdownlint-cli
-markdownlint README.md docs/*.md AGENTS.md llms.txt dev.md
+markdownlint README.md docs/*.md AGENTS.md llms.txt
 ```
 
 ## Project layout
@@ -30,7 +30,6 @@ markdownlint README.md docs/*.md AGENTS.md llms.txt dev.md
 | `examples/` | Runnable demos for each plugin phase. |
 | `tests/` | Integration tests + the WASM fuzz harness. |
 | `docs/` | Focused reference docs (e.g. the WASM interpreter support matrix). |
-| `dev.md` | Design doc — read this before proposing architectural changes. |
 
 ## Making a change
 

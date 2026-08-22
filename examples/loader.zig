@@ -1,4 +1,4 @@
-//! Cordis Native — dynamic plugin loading demo (dev.md §18, phase 2).
+//! Cordis Native — dynamic plugin loading demo (phase 2).
 //!
 //! Loads a C ABI plugin (shared library) at runtime via `std.DynLib` and runs
 //! it as a normal plugin scope. Demonstrates the bidirectional HostApi event

@@ -1,4 +1,4 @@
-//! Cordis Native — a minimal C ABI plugin (dev.md §18, phase 2).
+//! Cordis Native — a minimal C ABI plugin (phase 2).
 //!
 //! Built as a shared library and loaded at runtime by the host via
 //! `std.DynLib`. Implements the `abi/c.zig` contract: exports a manifest and

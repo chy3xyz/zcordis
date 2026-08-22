@@ -4,7 +4,7 @@
 //! bus but its lifetime is tied to the subscribing `Scope`: on scope disposal
 //! the scope's disposable list calls `unsubscribe`, which removes the listener
 //! from the bus and frees it. This is the "scope-aware event system" from
-//! `dev.md` §X — a dead scope can never fire a callback.
+//! a dead scope can never fire a callback.
 
 const std = @import("std");
 const Scope = @import("../core/scope.zig").Scope;

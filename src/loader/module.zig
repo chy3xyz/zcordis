@@ -1,4 +1,4 @@
-//! Cordis Native — dynamically loaded module (dev.md §18, phase 2).
+//! Cordis Native — dynamically loaded module (phase 2).
 //!
 //! Thin wrapper over `std.DynLib`: the host side of the C-ABI plugin contract.
 //! A `Module` holds one open shared library; `lookup` resolves exported symbols

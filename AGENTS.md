@@ -2,7 +2,7 @@
 
 Guidance for automated coding agents working in `zcordis` (Cordis Native): a
 Zig 0.17 reimplementation of the Cordis plugin meta-framework, with a
-self-written WASM MVP interpreter. Read `README.md` and `dev.md` for the
+self-written WASM MVP interpreter. Read `README.md` and the `docs/` directory for the
 project's intent and design rationale; this file is the quick operational
 cheat-sheet.
 

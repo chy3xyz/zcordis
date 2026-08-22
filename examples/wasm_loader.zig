@@ -1,4 +1,4 @@
-//! Cordis Native — WASM plugin demo (dev.md §19, phase 3).
+//! Cordis Native — WASM plugin demo (phase 3).
 //!
 //! Assembles a small WASM plugin in-memory, loads it through the interpreter,
 //! and runs it as a normal plugin scope. The plugin's `init` calls the host

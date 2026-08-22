@@ -1,8 +1,8 @@
 //! Cordis Native — service registry container (section V).
 //!
 //! Thin container type used by `Scope`. The actual typed provide/get logic
-//! lives in `service.zig`; this module exists so the layout mirrors `dev.md`
-//! (a `ServiceRegistry` abstraction distinct from the `Service` value type).
+//! lives in `service.zig`; this module exists so the layout keeps the registry
+//! abstraction distinct from the `Service` value type.
 
 const std = @import("std");
 const svc = @import("service.zig");

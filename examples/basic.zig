@@ -1,6 +1,6 @@
 //! Cordis Native — basic composition demo.
 //!
-//! Run with `zig build run`. Shows the four pillars from `dev.md`:
+//! Run with `zig build run`. Shows the four pillars of the framework:
 //!   * typed services (provide/get with compile-time type safety)
 //!   * scope-aware events (auto-revoked on scope disposal)
 //!   * cancellable effects (background task tied to a scope)

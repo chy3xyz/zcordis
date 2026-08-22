@@ -1,4 +1,4 @@
-//! Cordis Native — plugin loader (dev.md §18: phase 2, C ABI plugins).
+//! Cordis Native — plugin loader (phase 2, C ABI plugins).
 //!
 //! Loads plugins at runtime instead of compile-time imports. The C-ABI path
 //! opens a shared library, reads its exported `CordisPluginManifest`, and
@@ -196,7 +196,7 @@ pub fn loadFromManifest(
     });
 }
 
-// ── WASM plugins (dev.md §19, phase 3) ─────────────────────────────────
+// ── WASM plugins (phase 3) ──────────────────────────────────────────────
 // A WASM plugin runs inside the interpreter (`abi/wasm.zig`). Its only
 // contact with the outside world is the two host imports below, which the
 // bridge routes to the `Context`. This mirrors the C-ABI `HostApi` model.

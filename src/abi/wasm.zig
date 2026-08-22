@@ -1,4 +1,4 @@
-//! Cordis Native — minimal WASM (MVP) plugin runtime (dev.md §19, phase 3).
+//! Cordis Native — minimal WASM (MVP) plugin runtime (phase 3).
 //!
 //! A small, self-contained interpreter for a controlled subset of the WebAssembly
 //! MVP binary format. It exists to run sandboxed plugins: the only way a WASM

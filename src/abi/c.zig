@@ -1,4 +1,4 @@
-//! Cordis Native — C ABI plugin contract (dev.md §18, phase 2).
+//! Cordis Native — C ABI plugin contract (phase 2).
 //!
 //! The single source of truth for the C ABI a dynamic plugin must implement.
 //! A plugin author writes a shared library exporting:

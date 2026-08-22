@@ -7,7 +7,6 @@ documentation for AI agents and LLM-based tooling.
 ## Project overview
 
 - README.md — what/why/status, build/test/fuzz commands, docs index, sandbox invariants
-- dev.md — full design rationale (Chinese); architecture, scopes, events, effects, plugins
 - AGENTS.md — operational cheat-sheet for coding agents (commands, sandbox rules, conventions)
 
 ## Developer documentation (English)

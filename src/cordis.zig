@@ -1,7 +1,7 @@
 //! Cordis Native — Zig 0.17 reimplementation of the Cordis meta-framework.
 //!
 //! Semantic compatibility with TypeScript Cordis, but with native, typed,
-//! deterministic composition (see `dev.md`). The public surface is re-exported
+//! deterministic composition. The public surface is re-exported
 //! here; subsystems live under `core/`, `service/`, `event/`, `effect/`,
 //! `plugin/` and `io/`.
 
