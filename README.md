@@ -1,7 +1,7 @@
 # zcordis
 
 **Cordis Native** — a from-scratch, dependency-free rewrite of the
-[Cordis](https://github.com/cordjs/cordis) meta-framework in **Zig 0.17**.
+[Cordis](https://github.com/cordiverse/cordis) meta-framework in **Zig 0.17**.
 
 `zcordis` is a native, typed, and deterministic **runtime kernel for composable
 plugins**. It reimplements Cordis' eight core concepts (Context, Scope, Plugin,
