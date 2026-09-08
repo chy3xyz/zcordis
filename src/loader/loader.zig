@@ -72,7 +72,7 @@ const ManifestData = struct {
         errdefer alloc.free(name);
         const version = try alloc.dupe(u8, std.mem.span(c.version));
         errdefer alloc.free(version);
-        var deps: std.ArrayListUnmanaged([]const u8) = .{ .items = &.{}, .capacity = 0 };
+        var deps: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer deps.deinit(alloc);
         var it = c.depends_on;
         while (it[0]) |d| : (it += 1) {

@@ -12,7 +12,7 @@ const Effect = @import("effect.zig").Effect;
 pub const Scheduler = struct {
     alloc: std.mem.Allocator,
     io: ?std.Io,
-    effects: std.ArrayListUnmanaged(*Effect) = .{ .items = &.{}, .capacity = 0 },
+    effects: std.ArrayListUnmanaged(*Effect) = .empty,
     next_id: u64 = 0,
 
     pub fn init(alloc: std.mem.Allocator, io: ?std.Io) Scheduler {
@@ -36,7 +36,7 @@ pub const Scheduler = struct {
         // `ArrayListUnmanaged.deinit` frees the buffer but leaves `.len` set, so
         // reset explicitly — otherwise a later `cancelForScope` would iterate a
         // dangling buffer (DebugAllocator fills freed memory with 0xaa).
-        self.effects = .{ .items = &.{}, .capacity = 0 };
+        self.effects = .empty;
     }
 
     fn genId(self: *Scheduler) u64 {

@@ -48,7 +48,7 @@ pub fn makeDisposable(
 /// Ordered list of cleanup callbacks. `clear` runs them in reverse order so
 /// teardown mirrors construction (last-registered, first-destroyed).
 pub const DisposableList = struct {
-    items: std.ArrayListUnmanaged(Disposable) = .{ .items = &.{}, .capacity = 0 },
+    items: std.ArrayListUnmanaged(Disposable) = .empty,
 
     pub fn push(self: *DisposableList, alloc: std.mem.Allocator, d: Disposable) !void {
         try self.items.append(alloc, d);
@@ -71,7 +71,7 @@ pub const DisposableList = struct {
             d.call(d.ctx);
         }
         self.items.deinit(alloc);
-        self.items = .{ .items = &.{}, .capacity = 0 };
+        self.items = .empty;
     }
 };
 
@@ -84,7 +84,7 @@ pub const Scope = struct {
     /// This scope's private allocator. Freed wholesale on dispose, so every
     /// service/effect created here is reclaimed deterministically.
     arena: std.heap.ArenaAllocator,
-    children: std.ArrayListUnmanaged(*Scope) = .{ .items = &.{}, .capacity = 0 },
+    children: std.ArrayListUnmanaged(*Scope) = .empty,
     disposables: DisposableList = .{},
     services: service.ServiceMap,
 

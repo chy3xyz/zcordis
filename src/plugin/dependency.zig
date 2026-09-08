@@ -8,7 +8,7 @@ const std = @import("std");
 
 pub const Graph = struct {
     alloc: std.mem.Allocator,
-    names: std.ArrayListUnmanaged([]const u8) = .{ .items = &.{}, .capacity = 0 },
+    names: std.ArrayListUnmanaged([]const u8) = .empty,
     /// node index → list of dependency node indices.
     edges: std.AutoHashMapUnmanaged(usize, std.ArrayListUnmanaged(usize)) = .{},
 
@@ -26,7 +26,7 @@ pub const Graph = struct {
     pub fn addNode(self: *Graph, name: []const u8) !usize {
         const idx = self.names.items.len;
         try self.names.append(self.alloc, name);
-        try self.edges.put(self.alloc, idx, .{ .items = &.{}, .capacity = 0 });
+        try self.edges.put(self.alloc, idx, .empty);
         return idx;
     }
 
@@ -44,7 +44,7 @@ pub const Graph = struct {
         const color = try self.alloc.alloc(Color, n);
         defer self.alloc.free(color);
         @memset(color, .white);
-        var order: std.ArrayListUnmanaged(usize) = .{ .items = &.{}, .capacity = 0 };
+        var order: std.ArrayListUnmanaged(usize) = .empty;
         errdefer order.deinit(self.alloc);
 
         var i: usize = 0;

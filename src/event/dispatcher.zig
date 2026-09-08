@@ -30,7 +30,7 @@ pub fn collect(
     comptime E: type,
     emit_scope: *Scope,
 ) ![]*Listener {
-    var list: std.ArrayListUnmanaged(*Listener) = .{ .items = &.{}, .capacity = 0 };
+    var list: std.ArrayListUnmanaged(*Listener) = .empty;
     errdefer list.deinit(self.alloc);
     const key = event.eventKey(E);
     for (self.listeners.items) |l| {

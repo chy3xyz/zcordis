@@ -210,26 +210,26 @@ pub const ElementSegment = struct {
 
 pub const Module = struct {
     alloc: std.mem.Allocator,
-    types: std.ArrayListUnmanaged(FuncType) = .{ .items = &.{}, .capacity = 0 },
+    types: std.ArrayListUnmanaged(FuncType) = .empty,
     /// func_idx → type_idx; defined functions only (imports occupy the low
     /// indices).
-    func_types: std.ArrayListUnmanaged(u32) = .{ .items = &.{}, .capacity = 0 },
-    imports: std.ArrayListUnmanaged(FuncImport) = .{ .items = &.{}, .capacity = 0 },
+    func_types: std.ArrayListUnmanaged(u32) = .empty,
+    imports: std.ArrayListUnmanaged(FuncImport) = .empty,
     /// Defined tables (table section). MVP allows at most one.
-    tables: std.ArrayListUnmanaged(TableDef) = .{ .items = &.{}, .capacity = 0 },
+    tables: std.ArrayListUnmanaged(TableDef) = .empty,
     /// Imported tables (import section, kind == ext_kind_table).
-    table_imports: std.ArrayListUnmanaged(TableImport) = .{ .items = &.{}, .capacity = 0 },
+    table_imports: std.ArrayListUnmanaged(TableImport) = .empty,
     memory_min: u32 = 0,
     /// Imported globals (import section, kind == ext_kind_global). Occupy the
     /// low global indices, ahead of `globals` (defined globals).
-    global_imports: std.ArrayListUnmanaged(GlobalImport) = .{ .items = &.{}, .capacity = 0 },
-    globals: std.ArrayListUnmanaged(GlobalDef) = .{ .items = &.{}, .capacity = 0 },
+    global_imports: std.ArrayListUnmanaged(GlobalImport) = .empty,
+    globals: std.ArrayListUnmanaged(GlobalDef) = .empty,
     exports: std.StringHashMapUnmanaged(Export) = .{},
-    codes: std.ArrayListUnmanaged(CodeEntry) = .{ .items = &.{}, .capacity = 0 },
-    data_segments: std.ArrayListUnmanaged(DataSegment) = .{ .items = &.{}, .capacity = 0 },
+    codes: std.ArrayListUnmanaged(CodeEntry) = .empty,
+    data_segments: std.ArrayListUnmanaged(DataSegment) = .empty,
     /// Active element segments (element section). May be empty if the module
     /// declares no table or no segments.
-    elements: std.ArrayListUnmanaged(ElementSegment) = .{ .items = &.{}, .capacity = 0 },
+    elements: std.ArrayListUnmanaged(ElementSegment) = .empty,
     /// `start` section: the function index run automatically at instantiation.
     /// `null` when the module has no start function. The referenced function
     /// must have type `[] -> []` (validated at instantiation time).
@@ -625,24 +625,24 @@ pub const Instance = struct {
     alloc: std.mem.Allocator,
     module: *const Module,
     host_ctx: ?*anyopaque,
-    memory: std.ArrayListUnmanaged(u8) = .{ .items = &.{}, .capacity = 0 },
-    globals: std.ArrayListUnmanaged(i64) = .{ .items = &.{}, .capacity = 0 },
+    memory: std.ArrayListUnmanaged(u8) = .empty,
+    globals: std.ArrayListUnmanaged(i64) = .empty,
     host_fns: []const HostFn,
     /// Host-supplied initial values for imported globals, in import order
     /// (low global indices). Empty when the module imports no globals.
     host_globals: []const HostGlobal,
     /// Per-global mutability flag (parallel to `globals`), so `global.set`
     /// can reject writes to an immutable global (imported or defined).
-    global_mut: std.ArrayListUnmanaged(bool) = .{ .items = &.{}, .capacity = 0 },
+    global_mut: std.ArrayListUnmanaged(bool) = .empty,
 
     /// The single function table (funcref). Each slot is `null` when
     /// uninitialized (so `call_indirect` can trap on an empty slot) or the
     /// function index the slot dispatches to. Sized from the module's table
     /// definition (or imported table); empty when no table is declared.
-    table: std.ArrayListUnmanaged(?u32) = .{ .items = &.{}, .capacity = 0 },
+    table: std.ArrayListUnmanaged(?u32) = .empty,
 
-    stack: std.ArrayListUnmanaged(i64) = .{ .items = &.{}, .capacity = 0 },
-    frames: std.ArrayListUnmanaged(Frame) = .{ .items = &.{}, .capacity = 0 },
+    stack: std.ArrayListUnmanaged(i64) = .empty,
+    frames: std.ArrayListUnmanaged(Frame) = .empty,
 
     /// Execution budget: max instructions executed across all calls on this
     /// instance. Bounds worst-case runtime for untrusted plugins (e.g. an
@@ -804,7 +804,7 @@ pub const Instance = struct {
             .body = code.body,
             .pc = 0,
             .base = self.stack.items.len - args.len,
-            .labels = .{ .items = &.{}, .capacity = 0 },
+            .labels = .empty,
         };
         self.stack.items.len = frame.base;
         try self.frames.append(self.alloc, frame);
@@ -1136,7 +1136,7 @@ pub const Instance = struct {
             .body = code.body,
             .pc = 0,
             .base = arg_start,
-            .labels = .{ .items = &.{}, .capacity = 0 },
+            .labels = .empty,
         };
         self.stack.items.len = arg_start;
         try self.frames.append(self.alloc, new_frame);
@@ -1195,7 +1195,7 @@ pub const Instance = struct {
             .body = code.body,
             .pc = 0,
             .base = arg_start,
-            .labels = .{ .items = &.{}, .capacity = 0 },
+            .labels = .empty,
         };
         self.stack.items.len = arg_start;
         try self.frames.append(self.alloc, new_frame);
@@ -2570,7 +2570,7 @@ pub const ExportSpec = struct { name: []const u8, index: u32 };
 /// A tiny allocating builder that assembles a wasm binary for tests.
 pub const Builder = struct {
     alloc: std.mem.Allocator,
-    buf: std.ArrayListUnmanaged(u8) = .{ .items = &.{}, .capacity = 0 },
+    buf: std.ArrayListUnmanaged(u8) = .empty,
 
     pub fn deinit(self: *Builder) void {
         self.buf.deinit(self.alloc);

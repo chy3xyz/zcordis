@@ -140,7 +140,7 @@ const ToolRegistry = struct {
 
 // ctx.systemPrompt — assembles the system prompt from fragments.
 const SystemPrompt = struct {
-    fragments: std.ArrayListUnmanaged([]const u8) = .{ .items = &.{}, .capacity = 0 },
+    fragments: std.ArrayListUnmanaged([]const u8) = .empty,
     alloc: std.mem.Allocator,
     fn add(self: *SystemPrompt, frag: []const u8) !void {
         try self.fragments.append(self.alloc, frag);

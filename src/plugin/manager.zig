@@ -13,10 +13,10 @@ pub const Context = @import("../core/context.zig").Context;
 
 pub const PluginManager = struct {
     alloc: std.mem.Allocator,
-    plugins: std.ArrayListUnmanaged(Plugin) = .{ .items = &.{}, .capacity = 0 },
+    plugins: std.ArrayListUnmanaged(Plugin) = .empty,
     /// Per-plugin scopes, aligned with `order` (initialization order).
-    scopes: std.ArrayListUnmanaged(*Scope) = .{ .items = &.{}, .capacity = 0 },
-    order: std.ArrayListUnmanaged(usize) = .{ .items = &.{}, .capacity = 0 },
+    scopes: std.ArrayListUnmanaged(*Scope) = .empty,
+    order: std.ArrayListUnmanaged(usize) = .empty,
 
     pub fn init(alloc: std.mem.Allocator) PluginManager {
         return .{ .alloc = alloc };
@@ -58,8 +58,8 @@ pub const PluginManager = struct {
             scope.dispose();
         }
         self.scopes.deinit(self.alloc);
-        self.scopes = .{ .items = &.{}, .capacity = 0 };
+        self.scopes = .empty;
         self.order.deinit(self.alloc);
-        self.order = .{ .items = &.{}, .capacity = 0 };
+        self.order = .empty;
     }
 };

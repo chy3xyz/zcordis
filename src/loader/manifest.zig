@@ -35,7 +35,7 @@ pub const Manifest = struct {
 pub fn parse(alloc: std.mem.Allocator, text: []const u8) !Manifest {
     var name: ?[]const u8 = null;
     var version: ?[]const u8 = null;
-    var deps: std.ArrayListUnmanaged([]const u8) = .{ .items = &.{}, .capacity = 0 };
+    var deps: std.ArrayListUnmanaged([]const u8) = .empty;
 
     errdefer {
         if (name) |n| alloc.free(n);

@@ -16,9 +16,9 @@ const DynCallback = @import("../abi/c.zig").DynCallback;
 
 pub const EventBus = struct {
     alloc: std.mem.Allocator,
-    listeners: std.ArrayListUnmanaged(*Listener) = .{ .items = &.{}, .capacity = 0 },
+    listeners: std.ArrayListUnmanaged(*Listener) = .empty,
     /// Dynamic (C-ABI) listeners: string-keyed events with byte payloads.
-    dyn_listeners: std.ArrayListUnmanaged(DynListener) = .{ .items = &.{}, .capacity = 0 },
+    dyn_listeners: std.ArrayListUnmanaged(DynListener) = .empty,
     next_sub_id: usize = 1,
 
     pub fn init(alloc: std.mem.Allocator) EventBus {
