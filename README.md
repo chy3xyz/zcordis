@@ -46,7 +46,7 @@ See [`docs/getting-started.md`](docs/getting-started.md) for the quickstart and
 
 ## Requirements
 
-- **Zig 0.17.0** or newer (`zig version` → `0.17.0-dev.*`).
+- **Zig 0.17.0** stable or newer (`zig version` → `0.17.0`).
 - No third-party dependencies. `libc` is linked only for the example loaders and the
   C-plugin ABI.
 

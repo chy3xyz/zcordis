@@ -5,7 +5,7 @@
 //! segfault, not an out-of-bounds read. Every failure path has to surface as a
 //! clean `error` value so the loader can reject the plugin.
 //!
-//! Because this Zig build (0.17.0-dev) ships no `std.testing.fuzz`, the harness
+//! Because Zig 0.17.0 ships no `std.testing.fuzz`, the harness
 //! is a small in-process mutational fuzzer driven by `std.Random`:
 //!
 //!   * `buildBaseModule`      — assembles a *valid* wasm module via the public

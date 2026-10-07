@@ -18,9 +18,9 @@ zig build fuzz-wasm -- 100000        # fuzz the WASM interpreter (args: [iterati
 zig fmt src/ tests/ examples/        # MUST be run before committing Zig changes
 ```
 
-The exact versions use Zig `0.17.0-dev.1567+f0354179a` (installed via `zigup`).
-If `zig` is on a different nightly, treat compile errors as a signal to check
-the toolchain, not just the code.
+The project targets Zig `0.17.0` stable (installed via `zigup`), matching the
+version pinned in CI. If `zig` is on a different nightly, treat compile errors
+as a signal to check the toolchain, not just the code.
 
 ## Repo map
 
