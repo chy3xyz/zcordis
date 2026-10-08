@@ -69,31 +69,38 @@ pub fn Scheduler.spawn(
 ```
 
 - `Ctx` is the user context type (erased internally); `ctx` is a pointer to one.
-- `run` runs on its own OS thread, cooperatively cancellable via
-  `eff.cancelled`.
+- `run` is launched as a task on the runtime's `std.Io` (via
+  `std.Io.concurrent`), cooperatively cancellable via `eff.cancelled`.
 - The returned `*Effect` is owned by the scheduler and freed on completion or
   cancellation.
 
 ## The `Effect` type
 
 ```zig
-pub const State = enum { created, running, completed, cancelled, failed };
+pub const State = enum(u8) { created, running, completed, cancelled, failed };
 
 pub const Effect = struct {
     id: u64,
     scope: *Scope,
-    state: State,
+    state: std.atomic.Value(State),     // spawner, task and canceller all write it
     cancelled: std.atomic.Value(bool),  // poll to cooperatively stop
-    thread: ?std.Thread,
-    joinable: bool,
+    future: ?std.Io.Future(void),       // the running task; null once joined
     run: *const fn (*anyopaque, *Effect) anyerror!void,
     ctx: *anyopaque,
 };
 ```
 
 Long-running effects **must** poll `eff.cancelled.load(.seq_cst)` and return
-when set. The scheduler joins the thread during cancellation, so a non-yielding
-loop that ignores `cancelled` will block teardown.
+when set. The scheduler then cancels and joins the task, so a non-yielding loop
+that ignores `cancelled` will block teardown.
+
+The flag and `std.Io` cancellation are **complementary, and both are needed**.
+`std.Io` cancellation only fires at *I/O cancellation points*, so a CPU-bound
+loop would never observe it — hence the flag. Conversely, a task parked in a
+long `std.Io.sleep` (or a socket read) would otherwise wait out its full
+timeout — hence `future.cancel`, which interrupts it immediately. `Future.cancel`
+is also what releases the task's heap allocation; the scheduler drives it for
+*every* effect, including one whose task already finished on its own.
 
 ## Scope-bound cancellation
 
@@ -103,12 +110,12 @@ Disposing a scope cancels every effect it spawned:
 const sub = try ctx.child("worker");
 _ = try sub.spawn(Worker, &w, Worker.run);
 // ...
-sub.dispose();   // cancels Worker.effect, joins its thread, frees it
+sub.dispose();   // cancels Worker.effect, joins its task, frees it
 ```
 
 `Scheduler.cancelForScope(scope)` is invoked automatically by
-`Scope.dispose`. This is what prevents the detached-thread/timer leaks that
-plague GC-based frameworks: an effect's lifetime is bound to its scope's
+`Scope.dispose`. This is what prevents the leaked-task and leaked-timer problems
+that plague GC-based frameworks: an effect's lifetime is bound to its scope's
 lifetime.
 
 Manual cancellation is also available:
@@ -141,7 +148,7 @@ _ = try task.spawn(&ctx.scheduler, ctx.root);
 
 | Action | What happens |
 | --- | --- |
-| `scope.spawn(...)` | effect starts on its own thread, tracked by scheduler |
+| `scope.spawn(...)` | effect starts as a `std.Io` task, tracked by the scheduler |
 | effect returns | state → `completed`, freed by scheduler |
 | `eff.cancelled` set | effect should poll and return; scheduler joins + frees |
 | `scope.dispose()` | `cancelForScope` cancels + joins all the scope's effects |

@@ -82,7 +82,7 @@ Add it as a Zig package (the library module is named `cordis`):
 const cordis = @import("cordis");
 
 pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
     var ctx = try cordis.Context.init(alloc);
     defer ctx.deinit();

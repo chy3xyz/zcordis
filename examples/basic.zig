@@ -15,9 +15,9 @@ var g_root_hits: u32 = 0;
 var g_sub_hits: u32 = 0;
 
 pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
-    defer std.debug.assert(gpa.deinit() == .ok);
+    defer std.debug.assert(gpa.deinit() == 0);
 
     var ctx = try cordis.Context.init(alloc);
     defer ctx.deinit();

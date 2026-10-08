@@ -35,9 +35,9 @@ const onGreetEcho: cordis.abi.DynCallback = struct {
 }.call;
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
-    defer std.debug.assert(gpa.deinit() == .ok);
+    defer std.debug.assert(gpa.deinit() == 0);
 
     var it = try std.process.Args.Iterator.initAllocator(init.args, alloc);
     defer it.deinit();

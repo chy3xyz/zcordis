@@ -47,9 +47,9 @@ test "plugins initialize in dependency order" {
 }
 
 test "resolver topo-orders dependencies (leaves last)" {
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
-    defer std.debug.assert(gpa.deinit() == .ok);
+    defer std.debug.assert(gpa.deinit() == 0);
 
     const P = cordis.Plugin;
     const noop = struct {
@@ -68,9 +68,9 @@ test "resolver topo-orders dependencies (leaves last)" {
 }
 
 test "resolver detects dependency cycles" {
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
-    defer std.debug.assert(gpa.deinit() == .ok);
+    defer std.debug.assert(gpa.deinit() == 0);
 
     const P = cordis.Plugin;
     const noop = struct {
@@ -81,13 +81,13 @@ test "resolver detects dependency cycles" {
         .{ .name = "y", .init = noop, .depends_on = &.{"x"} },
     };
     const order = cordis.resolveDependencies(alloc, &plugins);
-    try std.testing.expectError(error.Cycle, order);
+    try std.testing.expectError(error.DependencyCycle, order);
 }
 
 test "resolver reports missing dependencies" {
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
-    defer std.debug.assert(gpa.deinit() == .ok);
+    defer std.debug.assert(gpa.deinit() == 0);
 
     const P = cordis.Plugin;
     const noop = struct {

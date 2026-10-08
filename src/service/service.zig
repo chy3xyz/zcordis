@@ -77,9 +77,9 @@ pub fn getFrom(
 }
 
 test "provideIn / getFrom round-trip with type safety" {
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
-    defer std.debug.assert(gpa.deinit() == .ok);
+    defer std.debug.assert(gpa.deinit() == 0);
 
     var map: ServiceMap = .{};
     defer map.deinit(alloc);

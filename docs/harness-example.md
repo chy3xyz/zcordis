@@ -262,7 +262,7 @@ for `zcordis` code:
 
 2. **Decide who owns a buffer at each hand-off.** In the example `Conversation.push`
    takes ownership by duping into the conversation arena; callers that allocate a
-   transient buffer (e.g. `std.fmt.allocPrint`) must free it *after* pushing,
+   transient buffer (e.g. `allocator.print`) must free it *after* pushing,
    otherwise the original is orphaned. Conversely, `deinit` frees every message,
    so do not store static string literals and then free them.
 

@@ -72,3 +72,36 @@ test "scope dispose runs disposables in reverse registration order" {
     try std.testing.expectEqual(@as(u32, 3), order[0]);
     try std.testing.expect(!s.isAlive());
 }
+
+test "scope.effect attaches the setup's disposable and rejects a dead scope" {
+    var ctx = try cordis.Context.init(std.testing.allocator);
+    defer ctx.deinit();
+
+    // The flag lives on the test's stack, so it is still readable after the
+    // scope's arena has been freed. Handlers reach it through a service.
+    var fired: bool = false;
+    const Flag = struct { out: *bool };
+
+    const s = try ctx.root.child("s");
+    _ = try s.provide(Flag, "flag", .{ .out = &fired }, null);
+
+    const setup = struct {
+        fn run(scope: *cordis.Scope) anyerror!?cordis.Disposable {
+            const f = scope.get(Flag, "flag").?;
+            return cordis.makeDisposable(Flag, f, struct {
+                fn dispose(x: *Flag) void {
+                    x.out.* = true;
+                }
+            }.dispose);
+        }
+    }.run;
+
+    try s.effect(void, setup);
+    try std.testing.expect(!fired);
+
+    s.dispose();
+    try std.testing.expect(fired);
+
+    // A disposed scope refuses to take on new effects.
+    try std.testing.expectError(cordis.CordisError.InactiveEffect, s.effect(void, setup));
+}

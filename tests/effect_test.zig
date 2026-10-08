@@ -57,3 +57,71 @@ test "effect cancellation flag is observable from the task" {
     ctx.root.dispose();
     try std.testing.expect(flag.seen_cancel);
 }
+
+// Hammer the scheduler's effect list from several threads at once. Without the
+// scheduler lock, concurrent `spawn` (append) and `cancel` (ordered remove)
+// interleave on the same `ArrayListUnmanaged` and corrupt it; the
+// `SafeAllocator` behind `std.testing.allocator` then panics on the resulting
+// double free / write-after-free, and any drop fails the leak check.
+test "concurrent spawn and cancel from many threads keeps the scheduler intact" {
+    var ctx = try cordis.Context.init(std.testing.allocator);
+    defer ctx.deinit();
+
+    const Body = struct {};
+    const Run = struct {
+        fn run(b: *Body, eff: *cordis.Effect) !void {
+            _ = b;
+            // Park in an I/O call so cancellation interrupts real work.
+            std.Io.sleep(eff.scope.runtime.io(), std.Io.Duration.fromMilliseconds(50), .real) catch {};
+        }
+    };
+
+    const Hammer = struct {
+        fn go(c: *cordis.Context, b: *Body, rounds: u32) void {
+            var i: u32 = 0;
+            while (i < rounds) : (i += 1) {
+                const eff = c.root.spawn(Body, b, Run.run) catch continue;
+                c.scheduler.cancel(eff);
+            }
+        }
+    };
+
+    var body = Body{};
+    const rounds = 100;
+    var threads: [4]std.Thread = undefined;
+    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Hammer.go, .{ ctx, &body, rounds });
+    for (threads) |t| t.join();
+}
+
+// Two threads racing to cancel the *same* effect. Only the thread that wins the
+// unlink may drive the join: a loser that also called `Future.cancel` on the
+// same future would trip `Threaded.cancel`'s `unreachable` (a double cancel) and
+// race the winner's `destroy`.
+test "concurrent cancel of one effect is safe" {
+    var ctx = try cordis.Context.init(std.testing.allocator);
+    defer ctx.deinit();
+
+    const Body = struct {};
+    const Run = struct {
+        fn run(b: *Body, eff: *cordis.Effect) !void {
+            _ = b;
+            // Park long enough that both cancellers arrive while it is live.
+            std.Io.sleep(eff.scope.runtime.io(), std.Io.Duration.fromMilliseconds(20), .real) catch {};
+        }
+    };
+    const Race = struct {
+        fn go(c: *cordis.Context, e: *cordis.Effect) void {
+            c.scheduler.cancel(e);
+        }
+    };
+
+    var body = Body{};
+    var i: u32 = 0;
+    while (i < 400) : (i += 1) {
+        const eff = try ctx.root.spawn(Body, &body, Run.run);
+        var a = try std.Thread.spawn(.{}, Race.go, .{ ctx, eff });
+        var b = try std.Thread.spawn(.{}, Race.go, .{ ctx, eff });
+        a.join();
+        b.join();
+    }
+}

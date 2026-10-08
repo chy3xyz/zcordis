@@ -338,10 +338,10 @@ const AgentLoopPlugin = struct {
             const result = entry.run(&e.call, &scratch);
             // `result` points into `scratch` (valid for this handler call);
             // embed it into owned transcript messages (push dupes them).
-            const tool_msg = try std.fmt.allocPrint(conv.alloc, "{s} -> {s}", .{ e.call.name, result });
+            const tool_msg = try conv.alloc.print("{s} -> {s}", .{ e.call.name, result });
             try conv.push("tool", tool_msg);
             conv.alloc.free(tool_msg);
-            const result_msg = try std.fmt.allocPrint(conv.alloc, "tool result: {s}", .{result});
+            const result_msg = try conv.alloc.print("tool result: {s}", .{result});
             try conv.push("user", result_msg);
             conv.alloc.free(result_msg);
         }
@@ -375,9 +375,9 @@ const AgentLoopPlugin = struct {
 };
 
 pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
-    defer std.debug.assert(gpa.deinit() == .ok);
+    defer std.debug.assert(gpa.deinit() == 0);
 
     var ctx = try cordis.Context.init(alloc);
     defer ctx.deinit();

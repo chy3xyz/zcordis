@@ -16,7 +16,7 @@
 const std = @import("std");
 const Effect = @import("../effect/effect.zig").Effect;
 
-pub const State = enum {
+pub const State = enum(u8) {
     created,
     active,
     disposing,
@@ -48,14 +48,22 @@ pub fn makeDisposable(
 /// Ordered list of cleanup callbacks. `clear` runs them in reverse order so
 /// teardown mirrors construction (last-registered, first-destroyed).
 pub const DisposableList = struct {
+    /// Guards `items`. `io` is threaded through the methods rather than stored
+    /// because a `DisposableList` is a bare value field of `Scope`, created
+    /// with `.{}` — there is no constructor to seed an `std.Io` from.
+    mutex: std.Io.Mutex = .init,
     items: std.ArrayListUnmanaged(Disposable) = .empty,
 
-    pub fn push(self: *DisposableList, alloc: std.mem.Allocator, d: Disposable) !void {
+    pub fn push(self: *DisposableList, io: std.Io, alloc: std.mem.Allocator, d: Disposable) !void {
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
         try self.items.append(alloc, d);
     }
 
-    pub fn remove(self: *DisposableList, alloc: std.mem.Allocator, d: Disposable) void {
+    pub fn remove(self: *DisposableList, io: std.Io, alloc: std.mem.Allocator, d: Disposable) void {
         _ = alloc;
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
         for (self.items.items, 0..) |item, i| {
             if (item.ctx == d.ctx and item.call == d.call) {
                 _ = self.items.orderedRemove(i);
@@ -64,14 +72,22 @@ pub const DisposableList = struct {
         }
     }
 
-    pub fn clear(self: *DisposableList, alloc: std.mem.Allocator) void {
-        while (self.items.items.len > 0) {
-            const d = self.items.items[self.items.items.len - 1];
-            self.items.items.len -= 1;
+    /// Run and drop every attached disposable, last-registered first. Each
+    /// callback runs with the lock **released**, because a disposable may
+    /// re-enter this very list (`unsubscribe` removes itself from it).
+    pub fn clear(self: *DisposableList, io: std.Io, alloc: std.mem.Allocator) void {
+        while (true) {
+            self.mutex.lockUncancelable(io);
+            const maybe_d = self.items.pop();
+            self.mutex.unlock(io);
+
+            const d = maybe_d orelse break;
             d.call(d.ctx);
         }
+        self.mutex.lockUncancelable(io);
         self.items.deinit(alloc);
         self.items = .empty;
+        self.mutex.unlock(io);
     }
 };
 
@@ -80,10 +96,14 @@ pub const Scope = struct {
     name: []const u8,
     parent: ?*Scope,
     runtime: *Context,
-    state: State = .created,
+    /// Written by `dispose` and read by `isAlive` from other threads (event
+    /// dispatch and dynamic emits both filter on it), so it is atomic.
+    state: std.atomic.Value(State) = .init(.created),
     /// This scope's private allocator. Freed wholesale on dispose, so every
     /// service/effect created here is reclaimed deterministically.
     arena: std.heap.ArenaAllocator,
+    /// Guards `children`, which `create` appends to and `dispose` pops from.
+    children_mutex: std.Io.Mutex = .init,
     children: std.ArrayListUnmanaged(*Scope) = .empty,
     disposables: DisposableList = .{},
     services: service.ServiceMap,
@@ -112,7 +132,11 @@ pub const Scope = struct {
         // root scope the struct lives in `backing`, so without this the name
         // would leak — `Context.deinit` only frees the struct itself.)
         self.name = try self.arena.allocator().dupe(u8, name);
-        if (parent) |p| try p.children.append(p.arena.allocator(), self);
+        if (parent) |p| {
+            p.children_mutex.lockUncancelable(runtime.io());
+            defer p.children_mutex.unlock(runtime.io());
+            try p.children.append(p.arena.allocator(), self);
+        }
         return self;
     }
 
@@ -128,11 +152,12 @@ pub const Scope = struct {
     }
 
     pub fn isAlive(self: *const Scope) bool {
-        return self.state == .created or self.state == .active;
+        const s = self.state.load(.acquire);
+        return s == .created or s == .active;
     }
 
     pub fn activate(self: *Scope) void {
-        self.state = .active;
+        self.state.store(.active, .release);
     }
 
     /// Provide a service value in this scope. Returns the typed pointer that
@@ -160,7 +185,7 @@ pub const Scope = struct {
 
     /// Register a cleanup callback directly on this scope.
     pub fn attach(self: *Scope, d: Disposable) !void {
-        try self.disposables.push(self.alloc(), d);
+        try self.disposables.push(self.runtime.io(), self.alloc(), d);
     }
 
     /// Run `setup`, which may return an optional `Disposable` (a teardown
@@ -237,13 +262,24 @@ pub const Scope = struct {
     /// Dispose this scope and everything beneath it, in deterministic order:
     /// children → service teardowns → attached disposables → free arena.
     pub fn dispose(self: *Scope) void {
-        if (self.state == .disposed) return;
-        self.state = .disposing;
+        // Claim the disposal atomically: whoever moves the state out of a live
+        // one owns the teardown below. A read-then-write would let two
+        // concurrent disposals both run it, freeing the arena twice.
+        switch (self.state.swap(.disposing, .acq_rel)) {
+            .created, .active => {},
+            .disposing, .disposed => return,
+        }
 
         // 1. Recurse into children (reverse = last-created, first-destroyed).
-        while (self.children.items.len > 0) {
-            const child_scope = self.children.items[self.children.items.len - 1];
-            self.children.items.len -= 1;
+        //    Pop under the lock and dispose outside it: a child's teardown takes
+        //    the child's own locks, and holding this one across it would nest
+        //    two container locks.
+        while (true) {
+            self.children_mutex.lockUncancelable(self.runtime.io());
+            const maybe_child = self.children.pop();
+            self.children_mutex.unlock(self.runtime.io());
+
+            const child_scope = maybe_child orelse break;
             child_scope.dispose();
         }
 
@@ -258,11 +294,11 @@ pub const Scope = struct {
         }
 
         // 4. Run attached disposables in reverse registration order.
-        self.disposables.clear(self.alloc());
+        self.disposables.clear(self.runtime.io(), self.alloc());
 
         // 5. Free everything this scope allocated, then mark disposed.
         self.arena.deinit();
-        self.state = .disposed;
+        self.state.store(.disposed, .release);
     }
 };
 

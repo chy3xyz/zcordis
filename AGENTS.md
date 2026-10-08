@@ -82,6 +82,45 @@ module namespace `cordis`; there is no per-directory module setup.
   `scope.get(T, name)` walks the parent chain. Children see parent services;
   siblings do not.
 
+## Concurrency
+
+Effects and `parallel` handlers run as `std.Io` tasks, so runtime state is
+touched from several threads. Six invariants keep that sound; breaking any of
+them reintroduces a race, a deadlock, or a use-after-free.
+
+1. **One lock per container, all `std.Io.Mutex`.** `Scheduler.mutex` guards
+   `effects`/`next_id`; `EventBus.mutex` guards
+   `listeners`/`dyn_listeners`/`next_sub_id`; `Scope.children_mutex` guards a
+   scope's child list; `DisposableList.mutex` guards a scope's disposables. Take
+   them with `lockUncancelable(io)`: they are held only for bounded list edits,
+   so a cancellation point inside bookkeeping buys nothing.
+2. **Cross-thread flags are atomic, not locked.** `Effect.state`, `Scope.state`,
+   `Listener.refs` and `Context.scope_counter`. `Scope.dispose` claims the
+   teardown with a `swap` rather than a read-then-write, so two concurrent
+   disposals cannot both free the arena.
+3. **Never hold two locks at once.** `subscribe` touches both the bus and the
+   scope, and `Scope.dispose` runs disposables that re-enter the bus — holding
+   both would close a lock cycle. Each container is locked and released on its
+   own.
+4. **Never hold a lock across user code or a join.** Task bodies, event handlers
+   and dynamic callbacks may call back into the runtime, and `std.Io.Mutex` is
+   not reentrant. Snapshot under the lock, then run outside it —
+   `cancelForScope`, `dispatcher.collect`, `emitDynamic` and
+   `DisposableList.clear` all follow this shape.
+5. **Only the thread that unlinks an effect owns it.** `Scheduler.cancel` must
+   return immediately when `unlinkLocked` says the effect was already gone: a
+   peer that won the unlink is cancelling and freeing it, and a second
+   `Future.cancel` on the same future hits `Threaded.cancel`'s `unreachable`.
+6. **Never free a listener a dispatch may still hold.** `Listener.refs` counts
+   one registration reference plus one per in-flight `collect`; `unsubscribe`
+   drops only the registration. Destroying directly reintroduces a
+   use-after-free between `emit` and a concurrent scope dispose.
+
+Known boundary: `Scope.dispose` still frees the scope's arena without
+coordinating with a concurrent `spawn`/`subscribe` on that *same* scope. Give
+each thread its own scope rather than tearing one down while another thread is
+still registering into it.
+
 ## When documenting
 
 - Put framework usage / developer docs under `docs/` in **English**.
@@ -95,3 +134,7 @@ module namespace `cordis`; there is no per-directory module setup.
 - `zig build test` green.
 - If you touched the interpreter, also run `zig build fuzz-wasm -- 100000` and
   confirm 0 crashes/host aborts.
+- If you touched the scheduler, the event bus, a scope's disposable list, or
+  `Listener`, note that `zig build test` carries cross-thread stress tests: they
+  corrupt or hang when a lock, a snapshot release, or a listener reference is
+  dropped.

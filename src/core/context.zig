@@ -32,7 +32,8 @@ pub const Context = struct {
     scheduler: Scheduler,
     plugins: PluginManager,
     root: *Scope,
-    scope_counter: u64 = 0,
+    /// Atomic: `child()` may be called from several threads at once.
+    scope_counter: std.atomic.Value(u64) = .init(0),
 
     /// The `Context` owns every subsystem and is heap-allocated so that the
     /// root `Scope`'s `runtime` back-pointer (and every `Io` handle derived
@@ -45,13 +46,14 @@ pub const Context = struct {
         self.* = .{
             .backing_allocator = backing,
             .io_ctx = try IoContext.init(backing),
-            .events = EventBus.init(backing),
+            .events = undefined,
             .scheduler = undefined,
             .plugins = PluginManager.init(backing),
             .root = undefined,
         };
-        // Build the scheduler against the *stable* `Io` handle (points at
-        // `self.io_ctx.threaded`, which is now heap-resident).
+        // Build the event bus and the scheduler against the *stable* `Io` handle
+        // (points at `self.io_ctx.threaded`, which is now heap-resident).
+        self.events = EventBus.init(backing, self.io());
         self.scheduler = Scheduler.init(backing, self.io());
         const root = try Scope.create(self, null, "root", 1);
         root.activate();
@@ -81,8 +83,8 @@ pub const Context = struct {
 
     /// Monotonic id source for scopes.
     pub fn nextScopeId(self: *Context) u64 {
-        self.scope_counter += 1;
-        return self.scope_counter;
+        // `.monotonic` suffices: ids need to be unique, not ordered.
+        return self.scope_counter.fetchAdd(1, .monotonic) + 1;
     }
 
     // ── Service convenience ────────────────────────────────────────────

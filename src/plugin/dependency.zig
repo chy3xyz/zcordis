@@ -2,9 +2,10 @@
 //!
 //! A directed graph where an edge `from → to` means "`from` depends on `to`"
 //! (so `to` must be initialized first). `topoSort` returns a valid init order
-//! or `Cycle` if the graph is not a DAG.
+//! or `CordisError.DependencyCycle` if the graph is not a DAG.
 
 const std = @import("std");
+const CordisError = @import("../core/error.zig").CordisError;
 
 pub const Graph = struct {
     alloc: std.mem.Allocator,
@@ -63,7 +64,7 @@ pub const Graph = struct {
         for (deps) |dep| {
             switch (color[dep]) {
                 .white => try self.dfs(dep, color, order),
-                .gray => return error.Cycle, // back-edge → cycle
+                .gray => return CordisError.DependencyCycle, // back-edge → cycle
                 .black => {},
             }
         }

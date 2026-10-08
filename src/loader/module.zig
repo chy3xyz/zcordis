@@ -25,7 +25,7 @@ pub const Module = struct {
 };
 
 test "opening a missing library fails" {
-    const path = switch (builtin.os.tag) {
+    const path = switch (builtin.target.os.tag) {
         .macos, .ios, .tvos, .watchos => "no_such_plugin.dylib",
         .linux, .freebsd, .netbsd, .openbsd => "no_such_plugin.so",
         else => return error.SkipZigTest,
