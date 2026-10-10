@@ -40,4 +40,6 @@ jobs:
       - name: Install markdownlint-cli
         run: npm install -g markdownlint-cli
       - name: Lint docs
-        run: markdownlint README.md docs/*.md AGENTS.md llms.txt
+        # CODE_OF_CONDUCT.md is the Contributor Covenant verbatim, whose bare URL
+        # trips MD034 — left out rather than editing upstream text.
+        run: markdownlint README.md CHANGELOG.md SECURITY.md CONTRIBUTING.md docs/*.md AGENTS.md llms.txt

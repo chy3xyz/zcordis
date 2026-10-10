@@ -1,6 +1,6 @@
 .{
     .name = .zcordis,
-    .version = "0.1.0",
+    .version = "0.2.0",
     .minimum_zig_version = "0.17.0",
     .fingerprint = 0xb3ad36f0599cbb91,
     .dependencies = .{},
@@ -12,9 +12,11 @@
         "CONTRIBUTING.md",
         "SECURITY.md",
         "CODE_OF_CONDUCT.md",
+        "CHANGELOG.md",
         "docs",
         "src",
         "examples",
         "tests",
+        "bench",
     },
 }

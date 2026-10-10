@@ -107,6 +107,7 @@ The WASM plugin ABI header for C/C++/Rust authors is emitted to
 | [`docs/wasm-interpreter.md`](docs/wasm-interpreter.md) | WASM MVP opcode support, f64 + bulk-memory, sandbox invariants, Builder/test recipes. |
 | [`AGENTS.md`](AGENTS.md) | Operational cheat-sheet for AI coding agents. |
 | [`llms.txt`](llms.txt) | LLM context index pointing at all the docs above. |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release history. |
 
 ## Examples
 
