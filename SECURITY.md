@@ -9,6 +9,19 @@ untrusted plugin code. The project's core safety claim is the **sandbox invarian
 > returned `error`, never a panic or abort. Untrusted code reaches the host only through
 > explicitly imported host functions.
 
+Untrusted code is bounded on three independent axes, and a gap in any of them is in scope
+for a report:
+
+| Bound | Default | Enforced by |
+| --- | --- | --- |
+| Instructions executed | 10M | `Instance.setStepBudget` → `error.ExecutionLimit` |
+| Call depth | 1024 | `Instance.setMaxCallDepth` → `error.CallDepthExceeded` |
+| Linear memory | the module's declared `max`, else 2^16 pages | `memory.grow` returns -1 |
+
+Time and memory are separate axes: the step budget alone does not bound how far the frame
+stack or linear memory can grow, which is why the other two exist. A growth request that
+violates a limit is a *result* (`-1`), not a trap — see `docs/wasm-interpreter.md`.
+
 The following are in scope for security reports:
 
 - Any input to `Module.load` / `Instance.create` / `callExport` that causes a **panic,

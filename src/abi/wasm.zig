@@ -220,6 +220,10 @@ pub const Module = struct {
     /// Imported tables (import section, kind == ext_kind_table).
     table_imports: std.ArrayListUnmanaged(TableImport) = .empty,
     memory_min: u32 = 0,
+    /// The `max` the memory section declared, if any (limits flag bit 0). This is
+    /// the module's own hard cap on `memory.grow`; `null` means it declared none,
+    /// leaving only the spec's 2^16-page ceiling.
+    memory_max: ?u32 = null,
     /// Imported globals (import section, kind == ext_kind_global). Occupy the
     /// low global indices, ahead of `globals` (defined globals).
     global_imports: std.ArrayListUnmanaged(GlobalImport) = .empty,
@@ -381,7 +385,10 @@ pub const Module = struct {
         if (count > 1) return error.MultiMemoryUnsupported;
         const flags = try r.uleb();
         const min = try r.uleb();
-        if ((flags & 0x01) != 0) _ = try r.uleb(); // shared/max present
+        // Limits flag bit 0 means a `max` follows. Keep it rather than skipping
+        // it: it is the module's own cap on `memory.grow`, and a host that
+        // inspects a module's declared footprint relies on it being honoured.
+        if ((flags & 0x01) != 0) self.memory_max = try r.uleb();
         self.memory_min = min;
     }
 
@@ -649,6 +656,12 @@ pub const Instance = struct {
     /// adversarial infinite `loop`/`br`); exhaustion yields `ExecutionLimit`.
     step_budget: usize = 10_000_000,
 
+    /// Maximum depth of the frame stack. The step budget bounds *time*, not
+    /// *memory*: a self-recursive module would otherwise grow `frames` (and each
+    /// frame's `locals`) until the allocator or the budget gave out. No real
+    /// module needs anything near this.
+    max_call_depth: usize = 1024,
+
     pub fn create(
         alloc: std.mem.Allocator,
         module: *const Module,
@@ -758,6 +771,13 @@ pub const Instance = struct {
     /// runaway `loop`/`br` cannot hang the host.
     pub fn setStepBudget(self: *Instance, budget: usize) void {
         self.step_budget = budget;
+    }
+
+    /// Cap the frame-stack depth (default 1024). The step budget bounds a
+    /// runaway program in *time* but not in *memory*, so this is the bound that
+    /// keeps deep recursion from growing `frames` without limit.
+    pub fn setMaxCallDepth(self: *Instance, depth: usize) void {
+        self.max_call_depth = depth;
     }
 
     pub fn callExport(self: *Instance, name: []const u8, args: []const i64) !i64 {
@@ -1122,6 +1142,11 @@ pub const Instance = struct {
         }
 
         // Defined callee: build its frame.
+        // Bound the call depth. The frame stack is heap-allocated and otherwise
+        // limited only by the step budget, which bounds *time* and not
+        // *memory*: an adversarial self-recursive module would grow `frames`
+        // (and each frame's `locals`) into the gigabytes before it tripped.
+        if (self.frames.items.len >= self.max_call_depth) return error.CallDepthExceeded;
         const code = self.module.codes.items[callee - @as(u32, @intCast(self.module.importCount()))];
         const total = ft.params.len + code.local_types.len;
         const locals = try self.alloc.alloc(i64, total);
@@ -1181,6 +1206,11 @@ pub const Instance = struct {
             return;
         }
 
+        // Bound the call depth. The frame stack is heap-allocated and otherwise
+        // limited only by the step budget, which bounds *time* and not
+        // *memory*: an adversarial self-recursive module would grow `frames`
+        // (and each frame's `locals`) into the gigabytes before it tripped.
+        if (self.frames.items.len >= self.max_call_depth) return error.CallDepthExceeded;
         const code = self.module.codes.items[callee - @as(u32, @intCast(self.module.importCount()))];
         const total = ft.params.len + code.local_types.len;
         const locals = try self.alloc.alloc(i64, total);
@@ -1802,11 +1832,29 @@ pub const Instance = struct {
         _ = try r.byte(); // reserved 0x00
         self.frames.items[top].pc = r.pos;
 
-        const delta = @as(u64, @intCast(try self.stackPop()));
+        // The operand is an i32 pushed sign-extended, so a "negative" value is
+        // really a huge unsigned delta. Reinterpret it with `@bitCast`, never a
+        // checked `@intCast`: the latter panics on the negative case, which
+        // would crash the host on well-formed WASM.
+        const delta = @as(u32, @truncate(@as(u64, @bitCast(try self.stackPop()))));
         const old_pages = self.memory.items.len / page_size;
         // Compute in u64 so a huge `delta` cannot wrap `usize` and trap.
         const new_pages = @as(u64, old_pages) + delta;
-        if (new_pages > 65536) return error.MemoryOutOfBounds;
+
+        // A growth that violates a limit is a normal *result* (-1), not a trap:
+        // the spec reduces `memory.grow` to -1 whenever the new size would
+        // exceed either the maximum the module declared or the 2^16-page
+        // ceiling on linear memory.
+        const spec_max_pages: u64 = 65536;
+        const limit: u64 = self.module.memory_max orelse spec_max_pages;
+        if (new_pages > limit or new_pages > spec_max_pages) {
+            try self.stackPush(-1);
+            return;
+        }
+
+        // A host allocator refusal is an embedder-level condition rather than a
+        // WASM-level one, so it stays a visible error instead of hiding behind
+        // the spec's -1.
         self.memory.ensureTotalCapacity(self.alloc, @as(usize, new_pages) * page_size) catch return error.MemoryOutOfBounds;
         self.memory.items.len = @as(usize, new_pages) * page_size;
         try self.stackPush(@intCast(old_pages));
@@ -2571,8 +2619,21 @@ pub const ExportSpec = struct { name: []const u8, index: u32 };
 pub const Builder = struct {
     alloc: std.mem.Allocator,
     buf: std.ArrayListUnmanaged(u8) = .empty,
+    /// Sections are recorded here and `buf` is rebuilt from them in ascending id
+    /// order, so callers may emit sections in any order and still get a module
+    /// the WASM binary format accepts. Appending in call order silently produced
+    /// out-of-spec modules — a start section after code, say — which the parser
+    /// here tolerates but which then mis-instantiates for reasons that have
+    /// nothing to do with the payload under test.
+    sections: std.ArrayListUnmanaged(Section) = .empty,
+    /// Bytes written before the first section: the magic + version header.
+    prefix_len: usize = 0,
+
+    const Section = struct { id: u8, bytes: []u8 };
 
     pub fn deinit(self: *Builder) void {
+        for (self.sections.items) |s| self.alloc.free(s.bytes);
+        self.sections.deinit(self.alloc);
         self.buf.deinit(self.alloc);
     }
 
@@ -2662,10 +2723,35 @@ pub const Builder = struct {
         try self.raw(s);
     }
 
+    /// Add a section to the module. Sections are kept sorted by id no matter what
+    /// order callers add them in, because the WASM binary format requires ids to
+    /// ascend (type 1, import 2, function 3, table 4, memory 5, global 6,
+    /// export 7, start 8, element 9, code 10, data 11).
     pub fn section(self: *Builder, id: u8, payload: []const u8) !void {
-        try self.emitByte(id);
-        try self.uleb(@intCast(payload.len));
-        try self.raw(payload);
+        if (self.sections.items.len == 0) self.prefix_len = self.buf.items.len;
+
+        var bytes: std.ArrayListUnmanaged(u8) = .empty;
+        errdefer bytes.deinit(self.alloc);
+        try bytes.append(self.alloc, id);
+        var size: usize = payload.len;
+        while (true) {
+            const b: u8 = @truncate(size & 0x7f);
+            size >>= 7;
+            try bytes.append(self.alloc, if (size != 0) b | 0x80 else b);
+            if (size == 0) break;
+        }
+        try bytes.appendSlice(self.alloc, payload);
+
+        const owned = try bytes.toOwnedSlice(self.alloc);
+        var at: usize = 0;
+        while (at < self.sections.items.len and self.sections.items[at].id <= id) : (at += 1) {}
+        self.sections.insert(self.alloc, at, .{ .id = id, .bytes = owned }) catch |e| {
+            self.alloc.free(owned);
+            return e;
+        };
+
+        self.buf.shrinkRetainingCapacity(self.prefix_len);
+        for (self.sections.items) |s| try self.buf.appendSlice(self.alloc, s.bytes);
     }
 
     pub fn types(self: *Builder, ts: []const FuncTypeSpec) !void {
@@ -2735,6 +2821,18 @@ pub const Builder = struct {
         try p.uleb(1);
         try p.emitByte(0);
         try p.uleb(min_pages);
+        try self.section(5, p.buf.items);
+    }
+
+    /// Declare linear memory with an explicit `max` (limits flags `0x01`), which
+    /// the interpreter enforces as a hard cap on `memory.grow`.
+    pub fn memoryWithMax(self: *Builder, min_pages: u32, max_pages: u32) !void {
+        var p = Builder{ .alloc = self.alloc };
+        defer p.deinit();
+        try p.uleb(1);
+        try p.emitByte(0x01); // flags: min and max present
+        try p.uleb(min_pages);
+        try p.uleb(max_pages);
         try self.section(5, p.buf.items);
     }
 
@@ -3129,23 +3227,54 @@ test "memory store out of bounds" {
     try testing.expectError(error.MemoryOutOfBounds, inst.callExport("run", &.{}));
 }
 
-test "memory.grow beyond 65536 pages is rejected" {
+test "memory.grow beyond the page ceiling returns -1" {
     var b = Builder{ .alloc = testing.allocator };
     defer b.deinit();
     try b.raw(&.{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 });
-    try b.types(&.{.{ .params = &.{}, .returns = &.{} }});
+    try b.types(&.{.{ .params = &.{}, .returns = &.{0x7f} }}); // () -> i32
     try b.functions(&.{0});
     try b.memory(1);
-    try b.exports(&.{.{ .name = "run", .index = 0 }});
-    // i32.const 70000, memory.grow, drop, end
-    const body = [_]u8{ 0x00, 0x41, 0xb0, 0x82, 0x04, 0x40, 0x1a, 0x0b };
+    try b.exports(&.{.{ .name = "grow", .index = 0 }});
+    // i32.const <delta>, memory.grow, end — a delta far past the 2^16-page
+    // ceiling on linear memory.
+    const body = [_]u8{ 0x00, 0x41, 0xb0, 0x82, 0x04, 0x40, 0x00, 0x0b };
     try b.code(&.{&body});
 
     var module = try Module.load(testing.allocator, b.buf.items);
     defer module.deinit();
     var inst = try Instance.create(testing.allocator, &module, null, &.{}, no_globals);
     defer inst.deinit();
-    try testing.expectError(error.MemoryOutOfBounds, inst.callExport("run", &.{}));
+    // A failed growth is a result, not a trap.
+    try testing.expectEqual(@as(i64, -1), try inst.callExport("grow", &.{}));
+    try testing.expectEqual(@as(usize, page_size), inst.memory.items.len);
+}
+
+test "memory.grow honours the module's declared maximum" {
+    var b = Builder{ .alloc = testing.allocator };
+    defer b.deinit();
+    try b.raw(&.{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 });
+    try b.types(&.{.{ .params = &.{}, .returns = &.{0x7f} }}); // () -> i32
+    try b.functions(&.{0});
+    try b.memoryWithMax(1, 2); // (memory 1 2)
+    try b.exports(&.{.{ .name = "grow", .index = 0 }});
+    // i32.const 1, memory.grow, end
+    const body = [_]u8{ 0x00, 0x41, 0x01, 0x40, 0x00, 0x0b };
+    try b.code(&.{&body});
+
+    var module = try Module.load(testing.allocator, b.buf.items);
+    defer module.deinit();
+    try testing.expectEqual(@as(?u32, 2), module.memory_max);
+    var inst = try Instance.create(testing.allocator, &module, null, &.{}, no_globals);
+    defer inst.deinit();
+
+    // Growing onto the declared maximum succeeds and reports the old size.
+    try testing.expectEqual(@as(i64, 1), try inst.callExport("grow", &.{}));
+    try testing.expectEqual(@as(usize, 2 * page_size), inst.memory.items.len);
+
+    // One page further exceeds the *declared* maximum (well short of the spec
+    // ceiling), so the result is -1 and the memory is left untouched.
+    try testing.expectEqual(@as(i64, -1), try inst.callExport("grow", &.{}));
+    try testing.expectEqual(@as(usize, 2 * page_size), inst.memory.items.len);
 }
 
 test "memory.grow within bounds succeeds" {
@@ -3157,7 +3286,7 @@ test "memory.grow within bounds succeeds" {
     try b.memory(1);
     try b.exports(&.{.{ .name = "run", .index = 0 }});
     // i32.const 1, memory.grow, drop, end  (1 -> 2 pages)
-    const body = [_]u8{ 0x00, 0x41, 0x01, 0x40, 0x1a, 0x0b };
+    const body = [_]u8{ 0x00, 0x41, 0x01, 0x40, 0x00, 0x1a, 0x0b };
     try b.code(&.{&body});
 
     var module = try Module.load(testing.allocator, b.buf.items);
@@ -3167,6 +3296,72 @@ test "memory.grow within bounds succeeds" {
     _ = try inst.callExport("run", &.{});
     // Expected after grow: 2 pages = 131072 bytes.
     try testing.expectEqual(@as(usize, 2 * page_size), inst.memory.items.len);
+}
+
+// `i32.const` is pushed sign-extended, so the operand of `memory.grow` can be a
+// negative i64. Reinterpreting it must not be a checked cast: `@intCast(-1)` to
+// u64 is illegal behaviour and panics in a safe build, which would crash the
+// host on well-formed WASM. Treat it as the huge unsigned delta the spec says
+// it is, i.e. a growth request that fails with -1.
+test "memory.grow with a negative delta must not crash the host" {
+    var b = Builder{ .alloc = testing.allocator };
+    defer b.deinit();
+    try b.raw(&.{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 });
+    try b.types(&.{.{ .params = &.{}, .returns = &.{0x7f} }}); // () -> i32
+    try b.functions(&.{0});
+    try b.memory(1);
+    try b.exports(&.{.{ .name = "grow", .index = 0 }});
+    // i32.const -1, memory.grow, end
+    const body = [_]u8{ 0x00, 0x41, 0x7f, 0x40, 0x00, 0x0b };
+    try b.code(&.{&body});
+
+    var module = try Module.load(testing.allocator, b.buf.items);
+    defer module.deinit();
+    var inst = try Instance.create(testing.allocator, &module, null, &.{}, no_globals);
+    defer inst.deinit();
+    try testing.expectEqual(@as(i64, -1), try inst.callExport("grow", &.{}));
+    try testing.expectEqual(@as(usize, page_size), inst.memory.items.len);
+}
+
+// The step budget bounds time, not memory. A self-recursive module grows the
+// frame stack (and each frame's locals) first, so the depth limit is what turns
+// runaway recursion into an error instead of gigabytes of frames.
+test "unbounded recursion is stopped by the call-depth limit" {
+    var b = Builder{ .alloc = testing.allocator };
+    defer b.deinit();
+    try b.raw(&.{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 });
+    try b.types(&.{.{ .params = &.{}, .returns = &.{} }});
+    try b.functions(&.{0});
+    try b.exports(&.{.{ .name = "recurse", .index = 0 }});
+    // call 0, end
+    const body = [_]u8{ 0x00, 0x10, 0x00, 0x0b };
+    try b.code(&.{&body});
+
+    var module = try Module.load(testing.allocator, b.buf.items);
+    defer module.deinit();
+    var inst = try Instance.create(testing.allocator, &module, null, &.{}, no_globals);
+    defer inst.deinit();
+    try testing.expectError(error.CallDepthExceeded, inst.callExport("recurse", &.{}));
+}
+
+test "ordinary nested calls stay well inside the call-depth limit" {
+    var b = Builder{ .alloc = testing.allocator };
+    defer b.deinit();
+    try b.raw(&.{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 });
+    try b.types(&.{.{ .params = &.{}, .returns = &.{0x7f} }}); // () -> i32
+    try b.functions(&.{ 0, 0 });
+    try b.exports(&.{.{ .name = "outer", .index = 0 }});
+    // outer: call 1, end         — delegates to inner
+    // inner: i32.const 7, end    — yields 7
+    const outer = [_]u8{ 0x00, 0x10, 0x01, 0x0b };
+    const inner = [_]u8{ 0x00, 0x41, 0x07, 0x0b };
+    try b.code(&.{ &outer, &inner });
+
+    var module = try Module.load(testing.allocator, b.buf.items);
+    defer module.deinit();
+    var inst = try Instance.create(testing.allocator, &module, null, &.{}, no_globals);
+    defer inst.deinit();
+    try testing.expectEqual(@as(i64, 7), try inst.callExport("outer", &.{}));
 }
 
 test "unsupported opcode traps" {

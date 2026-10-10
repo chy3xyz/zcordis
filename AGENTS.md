@@ -15,6 +15,7 @@ zig build run        # run the basic composition example
 zig build run-loader # build + run a C-ABI plugin example (needs the greet-plugin .so)
 zig build run-wasm   # build + run a WASM plugin in the interpreter
 zig build fuzz-wasm -- 100000        # fuzz the WASM interpreter (args: [iterations] [seed])
+zig build bench                      # micro-benchmarks (add -Doptimize=fast for usable numbers)
 zig fmt src/ tests/ examples/        # MUST be run before committing Zig changes
 ```
 
@@ -47,9 +48,11 @@ module namespace `cordis`; there is no per-directory module setup.
    (`src/abi/wasm.zig`) and the loader must return an `error` for every bad
    input — never `unreachable`, `panic`, `@panic`, or an out-of-bounds memory
    access. Host crashes / sandbox escapes are security bugs (see `SECURITY.md`).
-2. **Runaway loops are bounded.** The interpreter enforces a step budget via
-   `Instance.setStepBudget`. New execution paths must advance `pc` and respect
-   the budget.
+2. **Runaway loops and recursion are bounded.** The interpreter enforces a step
+   budget via `Instance.setStepBudget` and a frame-stack cap via
+   `Instance.setMaxCallDepth` — time and memory are separate axes, and the budget
+   does not bound recursion depth. New execution paths must advance `pc` and
+   respect both.
 3. **No double `advance`.** When a handler reads its own immediate bytes, the
    decoder already advances `frame.pc`; the handler must not `advance` again
    (this silently runs off the function body). Verify against existing op
@@ -58,7 +61,16 @@ module namespace `cordis`; there is no per-directory module setup.
    tests. It emits spec-correct SLEB128/ULEB128 and section framing
    (`Builder.i32Const`, `f64Const`, `types`, `imports`, `code`, …). Hand-writing
    `i64.const`/`f64.const` as little-endian bytes is a common mistake — those
-   are SLEB128.
+   are SLEB128. So are `i32.const` bytes whose high bit is set: a bare `0xAB` in
+   `0x41, 0xAB` is a *continuation* byte, so it swallows the next byte and
+   desynchronises every instruction after it. (That exact mistake sat in the
+   fuzz harness's base module and quietly stopped it instantiating, which is why
+   its exports were never actually executed.)
+5. **`Builder.section` sorts sections by id for you**, so call order does not
+   matter. It cannot produce the out-of-spec layout (a start section after code,
+   say) that still parses but then mis-instantiates for reasons unrelated to the
+   payload under test. Getting that order wrong used to be the caller's problem,
+   and the fuzz harness's base module got it wrong.
 
 ## Conventions
 
@@ -106,7 +118,9 @@ them reintroduces a race, a deadlock, or a use-after-free.
    and dynamic callbacks may call back into the runtime, and `std.Io.Mutex` is
    not reentrant. Snapshot under the lock, then run outside it —
    `cancelForScope`, `dispatcher.collect`, `emitDynamic` and
-   `DisposableList.clear` all follow this shape.
+   `DisposableList.clear` all follow this shape. The dispatch scratch is owned
+   by the dispatch (a stack array in the calling method), never a shared bus
+   member, so a handler that re-enters `emit` cannot clobber the outer set.
 5. **Only the thread that unlinks an effect owns it.** `Scheduler.cancel` must
    return immediately when `unlinkLocked` says the effect was already gone: a
    peer that won the unlink is cancelling and freeing it, and a second

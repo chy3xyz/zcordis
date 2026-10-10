@@ -10,7 +10,6 @@ const Disposable = @import("../core/scope.zig").Disposable;
 const makeDisposable = @import("../core/scope.zig").makeDisposable;
 const Listener = @import("listener.zig").Listener;
 const unsubscribe = @import("listener.zig").unsubscribe;
-const releaseRef = @import("listener.zig").releaseRef;
 const event = @import("event.zig");
 const dispatcher = @import("dispatcher.zig");
 const DynCallback = @import("../abi/c.zig").DynCallback;
@@ -45,15 +44,6 @@ pub const EventBus = struct {
         self.listeners.deinit(self.alloc);
         for (self.dyn_listeners.items) |*l| self.alloc.free(l.name);
         self.dyn_listeners.deinit(self.alloc);
-    }
-
-    /// Drop the dispatch references that `dispatcher.collect` took, then free
-    /// the snapshot array. Every dispatching path must run this exactly once;
-    /// it is what keeps an in-flight `emit` from touching a listener that a
-    /// concurrent `unsubscribe` has already retired.
-    fn releaseSnapshot(self: *EventBus, snap: []*Listener) void {
-        for (snap) |l| releaseRef(l);
-        self.alloc.free(snap);
     }
 
     /// Subscribe `handler` to event type `E` on `scope`. The returned
@@ -96,10 +86,11 @@ pub const EventBus = struct {
 
     /// Fire-and-forget: invoke every matching listener in priority order.
     pub fn emit(self: *EventBus, comptime E: type, emit_scope: *Scope, payload: *const E) !void {
-        const snap = try dispatcher.collect(self, E, emit_scope);
-        defer self.releaseSnapshot(snap);
+        var scratch: [dispatcher.inline_listeners]*Listener = undefined;
+        const snap = try dispatcher.collect(self, E, emit_scope, &scratch);
+        defer snap.release(self);
         var first_err: ?anyerror = null;
-        for (snap) |l| {
+        for (snap.items) |l| {
             if (l.removed) continue;
             l.call(emit_scope, payload, null) catch |e| {
                 if (first_err == null) first_err = e;
@@ -112,15 +103,16 @@ pub const EventBus = struct {
     /// Invoke all listeners concurrently; aggregate the first error. Return
     /// values are ignored (as in Cordis' `parallel`).
     pub fn parallel(self: *EventBus, comptime E: type, emit_scope: *Scope, payload: *const E) !void {
-        const snap = try dispatcher.collect(self, E, emit_scope);
-        defer self.releaseSnapshot(snap);
-        if (snap.len == 0) return;
+        var scratch: [dispatcher.inline_listeners]*Listener = undefined;
+        const snap = try dispatcher.collect(self, E, emit_scope, &scratch);
+        defer snap.release(self);
+        if (snap.items.len == 0) return;
 
-        const jobs = try self.alloc.alloc(ParallelJob, snap.len);
+        const jobs = try self.alloc.alloc(ParallelJob, snap.items.len);
         defer self.alloc.free(jobs);
-        const futures = try self.alloc.alloc(std.Io.Future(void), snap.len);
+        const futures = try self.alloc.alloc(std.Io.Future(void), snap.items.len);
         defer self.alloc.free(futures);
-        const errs = try self.alloc.alloc(?anyerror, snap.len);
+        const errs = try self.alloc.alloc(?anyerror, snap.items.len);
         defer self.alloc.free(errs);
         for (errs) |*e| e.* = null;
 
@@ -130,12 +122,20 @@ pub const EventBus = struct {
         errdefer {
             for (futures[0..started]) |*f| f.await(self.io);
         }
-        for (snap, 0..) |l, i| {
+        for (snap.items, 0..) |l, i| {
             jobs[i] = .{ .listener = l, .scope = emit_scope, .payload = payload, .err = &errs[i] };
             futures[i] = try std.Io.concurrent(self.io, runParallel, .{&jobs[i]});
             started += 1;
         }
         for (futures[0..started]) |*f| f.await(self.io);
+
+        // `once` applies here too: parallel invokes each listener exactly once, so
+        // the auto-removal that `emit`/`bail`/`waterfall` perform applies as well.
+        // Done after the join; the snapshot's references keep each record alive
+        // until `snap.release` below.
+        for (snap.items) |l| {
+            if (l.once) unsubscribe(l);
+        }
 
         for (errs) |e| if (e) |err| return err;
     }
@@ -143,10 +143,11 @@ pub const EventBus = struct {
     /// Invoke listeners in order; stop at the first "bailed" (truthy) result.
     /// Returns that result, or `null` if none bailed.
     pub fn bail(self: *EventBus, comptime E: type, emit_scope: *Scope, payload: *const E) !?event.ReturnOf(E) {
-        const snap = try dispatcher.collect(self, E, emit_scope);
-        defer self.releaseSnapshot(snap);
+        var scratch: [dispatcher.inline_listeners]*Listener = undefined;
+        const snap = try dispatcher.collect(self, E, emit_scope, &scratch);
+        defer snap.release(self);
         var slot: event.ReturnOf(E) = undefined;
-        for (snap) |l| {
+        for (snap.items) |l| {
             if (l.removed) continue;
             l.call(emit_scope, payload, &slot) catch {};
             if (dispatcher.isBailed(event.ReturnOf(E), slot)) {
@@ -173,10 +174,11 @@ pub const EventBus = struct {
         payload: *const E,
         seed: event.ReturnOf(E),
     ) !event.ReturnOf(E) {
-        const snap = try dispatcher.collect(self, E, emit_scope);
-        defer self.releaseSnapshot(snap);
+        var scratch: [dispatcher.inline_listeners]*Listener = undefined;
+        const snap = try dispatcher.collect(self, E, emit_scope, &scratch);
+        defer snap.release(self);
         var slot: event.ReturnOf(E) = seed;
-        for (snap) |l| {
+        for (snap.items) |l| {
             if (l.removed) continue;
             l.call(emit_scope, payload, &slot) catch {};
             if (l.once) unsubscribe(l);

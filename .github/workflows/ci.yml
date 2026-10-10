@@ -7,8 +7,14 @@ on:
 
 jobs:
   zig:
-    name: Zig build & test
-    runs-on: ubuntu-latest
+    name: Zig build & test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS is the platform this is developed on, and it is the only one that
+        # exercises `loader_test`'s `.dylib` branch — on Linux that test skips.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Zig
@@ -16,11 +22,13 @@ jobs:
         with:
           version: 0.17.0
       - name: Check formatting
-        run: zig fmt --check src/ tests/ examples/ build.zig
+        run: zig fmt --check src/ tests/ examples/ bench/ build.zig
       - name: Build
         run: zig build
       - name: Test
         run: zig build test
+      - name: Benchmarks (smoke — the harness must run on every platform)
+        run: zig build bench -Doptimize=fast
       - name: Fuzz (WASM interpreter, 100k iters)
         run: zig build fuzz-wasm -- 100000
 

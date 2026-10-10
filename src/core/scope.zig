@@ -193,10 +193,8 @@ pub const Scope = struct {
     /// disposable is tracked by the scope and runs on dispose.
     pub fn effect(
         self: *Scope,
-        comptime Setup: type,
         setup: *const fn (*Scope) anyerror!?Disposable,
     ) !void {
-        _ = Setup;
         if (!self.isAlive()) return CordisError.InactiveEffect;
         const d = try setup(self);
         if (d) |disp| try self.attach(disp);
@@ -215,12 +213,17 @@ pub const Scope = struct {
 
     /// Spawn a cancellable background effect owned by this scope. The task is
     /// automatically cancelled when the scope is disposed.
+    ///
+    /// A scope that is already disposing (or disposed) refuses new work, the same
+    /// way `effect` does: registering into a scope whose teardown has begun would
+    /// either leak the effect or race the arena free.
     pub fn spawn(
         self: *Scope,
         comptime Ctx: type,
         ctx: *Ctx,
         comptime run: *const fn (*Ctx, *Effect) anyerror!void,
     ) !*Effect {
+        if (!self.isAlive()) return CordisError.InactiveEffect;
         return self.runtime.scheduler.spawn(Ctx, self, ctx, run);
     }
 

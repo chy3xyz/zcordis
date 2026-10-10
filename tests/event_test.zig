@@ -244,6 +244,32 @@ test "parallel dispatches handlers concurrently, not one after another" {
     try std.testing.expectEqual(@as(u32, 2), ctx.get(Gate, "gate").?.both_seen.load(.seq_cst));
 }
 
+// `parallel` invokes each listener exactly once per emit, so `once` must be
+// honoured there too — the same auto-removal `emit`/`bail`/`waterfall` do.
+test "parallel honours once" {
+    var ctx = try cordis.Context.init(std.testing.allocator);
+    defer ctx.deinit();
+
+    const Msg = struct { x: u32 };
+    _ = try ctx.provide(ParCounters, "par", .{}, null);
+
+    const H = struct {
+        fn bump(s: *cordis.Scope, m: *const Msg) !void {
+            _ = m;
+            _ = s.get(ParCounters, "par").?.hits.fetchAdd(1, .seq_cst);
+        }
+    };
+    _ = try ctx.on(Msg, H.bump, .{ .once = true });
+
+    var m = Msg{ .x = 1 };
+    try ctx.parallel(Msg, &m);
+    try std.testing.expectEqual(@as(u32, 1), ctx.get(ParCounters, "par").?.hits.load(.seq_cst));
+
+    // The listener must be gone by the second emit.
+    try ctx.parallel(Msg, &m);
+    try std.testing.expectEqual(@as(u32, 1), ctx.get(ParCounters, "par").?.hits.load(.seq_cst));
+}
+
 // Emit from the main thread while other threads churn subscriptions, so the
 // snapshot an `emit` is dispatching to is being unsubscribed underneath it.
 // This is what the bus lock and the listener reference count exist for: the

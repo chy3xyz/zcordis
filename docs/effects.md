@@ -73,6 +73,9 @@ pub fn Scheduler.spawn(
   `std.Io.concurrent`), cooperatively cancellable via `eff.cancelled`.
 - The returned `*Effect` is owned by the scheduler and freed on completion or
   cancellation.
+- A scope that is already disposing refuses the effect (`error.InactiveEffect`),
+  the same way `Scope.effect` does — registering into a scope mid-teardown would
+  either leak the effect or race the arena free.
 
 ## The `Effect` type
 

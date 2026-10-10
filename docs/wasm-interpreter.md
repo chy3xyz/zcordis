@@ -165,9 +165,13 @@ reintroduce the old ad-hoc mapping.
 - `zig test src/abi/wasm.zig` — f64 + bulk-memory unit tests (12 f64, 5 bulk-memory) plus
   the corrected-opcode tests.
 - `zig test src/cordis.zig` — plugin-layer tests (unchanged behavior).
-- `zig build fuzz-wasm -- <iterations>` — structural mutational fuzzer. The fuzz base module
-  gained `f64math()` and `membulk()` `() -> ()` exports so the fuzzer structurally exercises
-  the f64 and bulk-memory code paths every iteration.
+- `zig build fuzz-wasm -- <iterations> [seed]` — structural mutational fuzzer. The base
+  module carries `f64math`, `membulk`, `growedge`, `loadneg`, `copyneg` and `recurse`
+  exports, and the harness asserts that the **pristine** base parses, instantiates and runs.
+  That assertion is what keeps those paths exercised on every iteration instead of only
+  when a mutation happens to land on them: `growedge` feeds `memory.grow` a sign-extended
+  negative delta and a delta past the page ceiling, `loadneg`/`copyneg` feed negative
+  operands to loads and bulk-memory, and `recurse` drives the call-depth limit.
 
 Sandbox invariant: **malformed input must never crash the host** — every failure mode is a
 returned `error` (`UnsupportedOpcode`, `MemoryOutOfBounds`, `InvalidMemoryIndex`,
@@ -210,3 +214,32 @@ globals   defined globals + imported globals (mutable/immutable enforced)
 - saturating / non-trapping (`*.trunc_sat_*`) truncations
 - `f32`/`f64` block results (a function or block may not use f32/f64 as a result type)
 - reference-types / multi-memory / SIMD / exception-handling
+
+---
+
+## 6. Resource bounds
+
+The interpreter runs untrusted code, so execution is bounded on three independent axes.
+Time and memory are **separate**: a step budget says nothing about how much heap a program
+can accumulate.
+
+| Bound | Default | Violation |
+|-------|---------|-----------|
+| Instructions executed | 10M | `error.ExecutionLimit` |
+| Frame-stack depth | 1024 | `error.CallDepthExceeded` |
+| Linear memory | the module's declared `max`, else 2^16 pages | `memory.grow` returns `-1` |
+
+- **Step budget** — `Instance.setStepBudget(n)`. Checked on every instruction, so even a
+  tight `loop`/`br` pair terminates.
+- **Call depth** — `Instance.setMaxCallDepth(n)`. `call` pushes onto an explicit frame
+  stack rather than recursing natively, so deep recursion cannot smash the host stack. It
+  *can* however grow `frames`, plus one `locals` allocation per frame, without limit —
+  which is what this bound exists for.
+- **Linear memory** — `memory.grow` honours the module's declared `max` as well as the
+  spec's 2^16-page ceiling, and reports failure the way the spec does: by **returning
+  `-1`**, not by trapping. Note the operand is an i32 pushed sign-extended, so
+  `i32.const -1` is a very large unsigned delta rather than a small one.
+
+A host allocator refusal during `ensureTotalCapacity` is deliberately *not* folded into
+that `-1`: it is an embedder-level condition, so it surfaces as `error.MemoryOutOfBounds`
+where the caller can see it.

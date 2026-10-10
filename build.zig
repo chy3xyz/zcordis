@@ -130,9 +130,31 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(fuzz_exe);
     const run_fuzz = b.addRunArtifact(fuzz_exe);
+    // Zig 0.17 requires an explicit opt-in for `-- <args>` passthrough. Without
+    // this line `zig build fuzz-wasm -- 100000 42` silently ignores both the
+    // iteration count and the seed and runs the compiled-in defaults.
+    run_fuzz.addPassthruArgs();
     run_fuzz.step.dependOn(b.getInstallStep());
     const fuzz_step = b.step("fuzz-wasm", "Run the WASM interpreter fuzz driver (args: [iterations] [seed])");
     fuzz_step.dependOn(&run_fuzz.step);
+
+    // ── Micro-benchmarks ────────────────────────────────────────────────
+    const bench_mod = b.createModule(.{
+        .root_source_file = b.path("bench/bench.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    bench_mod.addImport("cordis", lib_mod);
+    const bench_exe = b.addExecutable(.{
+        .name = "zcordis-bench",
+        .root_module = bench_mod,
+    });
+    b.installArtifact(bench_exe);
+    const run_bench = b.addRunArtifact(bench_exe);
+    run_bench.step.dependOn(b.getInstallStep());
+    const bench_step = b.step("bench", "Run the micro-benchmarks (-Doptimize=fast for usable numbers)");
+    bench_step.dependOn(&run_bench.step);
 
     // ── C plugin header (single source of truth: src/abi/c.zig) ────────
     // Emit `zig-out/include/cordis_plugin.h` so C/C++/Rust plugin authors can

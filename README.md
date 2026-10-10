@@ -32,8 +32,8 @@ host. Zig lets `zcordis` keep Cordis' composition model while being:
 
 ## Status
 
-Early but functional. All eight core subsystems and the three plugin phases from the
-design doc are implemented and verified:
+Early but functional. All eight core subsystems and the three plugin phases are
+implemented and verified:
 
 | Phase | Feature | Status |
 |-------|---------|--------|
@@ -60,6 +60,7 @@ zig build run-wasm        # run a WASM plugin in the interpreter
 zig build run-harness     # run the DeepSeek-Harness-style agent example
 
 zig build test            # all unit + integration tests
+zig build bench           # micro-benchmarks (use -Doptimize=fast)
 zig test src/cordis.zig   # kernel tests
 zig test src/abi/wasm.zig # WASM interpreter tests
 ```
@@ -97,7 +98,9 @@ The WASM plugin ABI header for C/C++/Rust authors is emitted to
 
 | Document | Audience |
 |----------|----------|
+| [`docs/architecture.md`](docs/architecture.md) | How the eight core concepts fit together; scope/arena model; the three plugin phases. |
 | [`docs/getting-started.md`](docs/getting-started.md) | Quickstart — Context, Scope, services, typed + dynamic events. |
+| [`docs/events.md`](docs/events.md) | Typed + dynamic events, scope-aware dispatch, the five dispatch modes. |
 | [`docs/plugins.md`](docs/plugins.md) | Native, C-ABI, and WASM plugins; loader teardown order. |
 | [`docs/effects.md`](docs/effects.md) | Effect / Scheduler / Task, scope-bound cancellation, I/O. |
 | [`docs/harness-example.md`](docs/harness-example.md) | DeepSeek-Harness-style agent runtime — usage guide: add tools, swap the model adapter, add listeners/plugins, stop conditions. |

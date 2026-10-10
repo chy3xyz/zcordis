@@ -59,7 +59,7 @@ defer sub.dispose();                 // deterministic, idempotent
 | `scope.alloc()` | arena allocator living as long as the scope |
 | `scope.provide` / `scope.get` | scoped services (see below) |
 | `scope.on` / `scope.emit` / `scope.parallel` / `scope.bail` / `scope.serial` / `scope.waterfall` | scoped event dispatch |
-| `scope.effect(Setup, setup)` | register a teardown closure |
+| `scope.effect(setup)` | register a teardown closure |
 | `scope.spawn(Ctx, ctx, run)` | spawn a scope-owned cancellable effect |
 | `scope.dispose()` | tear down this scope and everything beneath it |
 

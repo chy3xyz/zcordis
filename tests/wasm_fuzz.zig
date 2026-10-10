@@ -47,10 +47,27 @@ fn buildBaseModule(alloc: std.mem.Allocator) ![]u8 {
         .{ .params = &.{}, .returns = &.{} }, // 2: ()->()
     });
     try b.imports(&.{.{ .module = "cordis", .name = "host_log", .type_idx = 0 }}, &.{});
-    try b.functions(&.{ 1, 2, 2, 2, 2, 2 }); // run=1, add=2, count=3, dispatch=4, f64math=5, membulk=6 (all type2: ()->())
+    // Defined functions occupy indices 1..10 (index 0 is the `host_log` import).
+    // The last four exist so the *unmutated* base already drives the
+    // adversarial-operand paths: a sign-extended negative delta to `memory.grow`,
+    // a negative load address, negative bulk-memory operands, and unbounded
+    // self-recursion. Without them a byte-level mutator essentially never
+    // synthesises a still-valid module that reaches those paths — which is how a
+    // `memory.grow` host panic survived 100k iterations.
+    try b.functions(&.{ 1, 2, 2, 2, 2, 2, 2, 2, 2, 2 }); // run=1, add=2, count=3, dispatch=4, f64math=5, membulk=6, growedge=7, loadneg=8, copyneg=9, recurse=10
     try b.tables(&.{.{ .min = 1 }}); // one funcref slot
-    try b.memory(1);
-    try b.exports(&.{ .{ .name = "run", .index = 1 }, .{ .name = "add", .index = 2 }, .{ .name = "count", .index = 3 }, .{ .name = "dispatch", .index = 4 }, .{ .name = "f64math", .index = 5 }, .{ .name = "membulk", .index = 6 } });
+    // A declared `max` (not just the spec ceiling) so the unmutated base also
+    // covers growth that a module-declared limit refuses.
+    try b.memoryWithMax(1, 4);
+    try b.exports(&.{ .{ .name = "run", .index = 1 }, .{ .name = "add", .index = 2 }, .{ .name = "count", .index = 3 }, .{ .name = "dispatch", .index = 4 }, .{ .name = "f64math", .index = 5 }, .{ .name = "membulk", .index = 6 }, .{ .name = "growedge", .index = 7 }, .{ .name = "loadneg", .index = 8 }, .{ .name = "copyneg", .index = 9 }, .{ .name = "recurse", .index = 10 } });
+    // The start section (id 8) must be emitted *before* the element (9) and code
+    // (10) sections: WASM requires section ids to ascend, and the builder emits
+    // them in call order. `membulk` (func 6) is a `() -> ()` function that cannot
+    // trap against a 1-page memory, so this start target *completes* — which
+    // matters, because a start function that errors makes `Instance.create` fail
+    // and the pristine base would then never reach its exports at all. That is
+    // exactly the gap that let a host panic survive 100k iterations.
+    try b.start(6);
 
     // Element segment: place `add` (index 2) into table slot 0 so the
     // `dispatch` function can reach it via call_indirect.
@@ -130,17 +147,59 @@ fn buildBaseModule(alloc: std.mem.Allocator) ![]u8 {
         0x41, 0x04, // i32.const 4 (count)
         0xfc, 0x0a, 0x00, 0x00, // memory.copy 0,0,4
         0x41, 0x00, // i32.const 0 (dest)
-        0x41, 0xAB, // i32.const 0xAB (value)
+        0x41, 0xAB, 0x01, // i32.const 171 (0xAB) — SLEB128, so 0xAB needs its
+        // continuation terminator: a bare 0xAB has the high bit set and would
+        // swallow the next byte, desynchronising the whole instruction stream.
         0x41, 0x04, // i32.const 4 (count)
         0xfc, 0x0b, 0x00, 0x00, // memory.fill 0,0xAB,4
         0x0b, // end
     };
-    try b.code(&.{ &run_body, &add_body, &count_body, &dispatch_body, &f64math_body, &membulk_body });
-    // `add` (func 2) is declared `() -> ()`, so it is a valid start target;
-    // running it (empty stack → it reads missing locals → clean StackUnderflow)
-    // still exercises the start-section parse + instantiate path. Mutations
-    // that corrupt this section are exactly what we want fuzzed.
-    try b.start(2);
+    // growedge() = three `memory.grow`s: a legal delta (succeeds, 1→3 pages), a
+    // sign-extended negative delta (a huge *unsigned* request → must be refused
+    // with -1, not a host panic), and one past the 2^16-page ceiling (→ -1).
+    // None of these trap, so all three run in the unmutated base.
+    const growedge_body = [_]u8{
+        0x00, // 0 locals
+        0x41, 0x02, 0x40, 0x00, 0x1a, // i32.const 2;      memory.grow 0; drop
+        0x41, 0x7f, 0x40, 0x00, 0x1a, // i32.const -1;     memory.grow 0; drop
+        0x41, 0x80, 0x80, 0x04, 0x40, 0x00, 0x1a, // i32.const 65536; memory.grow 0; drop
+        0x0b, // end
+    };
+    // loadneg() = `i32.load` at a negative address. Traps (cleanly) — that is the
+    // point: the address is a sign-extended i32 and must be reinterpreted, not
+    // passed through a checked cast.
+    const loadneg_body = [_]u8{
+        0x00, // 0 locals
+        0x41, 0x7f, // i32.const -1 (negative address)
+        0x28, 0x02, 0x00, // i32.load align=2 offset=0
+        0x1a, // drop
+        0x0b, // end
+    };
+    // copyneg() = `memory.copy` with a negative dest and count.
+    const copyneg_body = [_]u8{
+        0x00, // 0 locals
+        0x41, 0x7f, // i32.const -1 (dest)
+        0x41, 0x00, // i32.const 0  (src)
+        0x41, 0x7f, // i32.const -1 (count)
+        0xfc, 0x0a, 0x00, 0x00, // memory.copy 0,0
+        0x0b, // end
+    };
+    // recurse() = `call` itself forever. The step budget alone would not bound
+    // how much the frame stack grows before it trips, so this is the path that
+    // the call-depth limit exists for.
+    const recurse_body = [_]u8{
+        0x00, // 0 locals
+        0x10, 0x0a, // call 10 (itself)
+        0x0b, // end
+    };
+    try b.code(&.{ &run_body, &add_body, &count_body, &dispatch_body, &f64math_body, &membulk_body, &growedge_body, &loadneg_body, &copyneg_body, &recurse_body });
+    // `membulk` (func 6) is a `() -> ()` function that cannot trap against a
+    // 1-page memory, so it is a start target that *completes*. That matters: a
+    // start function which errors makes `Instance.create` fail, so the pristine
+    // base would never reach its exports at all and the adversarial functions
+    // above would only ever run under a mutation — which is precisely the blind
+    // spot this harness had. Mutations that corrupt this section are still what
+    // we want fuzzed.
     return b.buf.toOwnedSlice(alloc);
 }
 
@@ -250,6 +309,13 @@ test "wasm fuzz: structural mutation" {
 
     const base = try buildBaseModule(std.testing.allocator);
     defer std.testing.allocator.free(base);
+
+    // The pristine base must itself reach execution. That is what guarantees the
+    // adversarial-operand functions in it (negative `memory.grow` delta, negative
+    // load address, negative bulk-memory operands, unbounded self-recursion) are
+    // actually driven on every run, instead of us merely hoping a mutation lands
+    // on them — the gap that let a host panic survive 100k iterations.
+    try std.testing.expectEqual(Outcome.ran, fuzzOne(std.testing.allocator, base));
 
     var counts: [3]u32 = .{ 0, 0, 0 };
     var i: usize = 0;

@@ -96,12 +96,35 @@ test "scope.effect attaches the setup's disposable and rejects a dead scope" {
         }
     }.run;
 
-    try s.effect(void, setup);
+    try s.effect(setup);
     try std.testing.expect(!fired);
 
     s.dispose();
     try std.testing.expect(fired);
 
     // A disposed scope refuses to take on new effects.
-    try std.testing.expectError(cordis.CordisError.InactiveEffect, s.effect(void, setup));
+    try std.testing.expectError(cordis.CordisError.InactiveEffect, s.effect(setup));
+}
+
+test "scope.spawn refuses a scope whose teardown has begun" {
+    var ctx = try cordis.Context.init(std.testing.allocator);
+    defer ctx.deinit();
+
+    const Body = struct {};
+    const Run = struct {
+        fn run(b: *Body, eff: *cordis.Effect) !void {
+            _ = b;
+            _ = eff;
+        }
+    };
+
+    var body = Body{};
+    const s = try ctx.root.child("s");
+    // A live scope accepts work...
+    _ = try s.spawn(Body, &body, Run.run);
+
+    s.dispose();
+    // ...and a disposed one refuses it, the same way `effect` does: registering
+    // into a scope mid-teardown would either leak the effect or race the arena.
+    try std.testing.expectError(cordis.CordisError.InactiveEffect, s.spawn(Body, &body, Run.run));
 }

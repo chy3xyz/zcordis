@@ -11,7 +11,9 @@ documentation for AI agents and LLM-based tooling.
 
 ## Developer documentation (English)
 
+- docs/architecture.md — the eight core concepts, scope/arena model, the three plugin phases
 - docs/getting-started.md — Context, Scope, services, typed + dynamic events, scope tree
+- docs/events.md — typed + dynamic events, scope-aware dispatch, the five dispatch modes, concurrency rules
 - docs/plugins.md — native manifest plugins, C-ABI plugins, WASM plugins, loader teardown
 - docs/effects.md — Effect / Scheduler / Task, scope-bound cancellation, I/O context
 - docs/harness-example.md — worked DeepSeek-Harness-style agent-runtime example
